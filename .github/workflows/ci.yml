@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    name: api (.NET)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: studyhive
+          POSTGRES_USER: studyhive
+          POSTGRES_PASSWORD: studyhive_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U studyhive -d studyhive"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet restore
+        working-directory: api
+      - run: dotnet build --no-restore
+        working-directory: api
+      - run: dotnet test --no-build
+        working-directory: api
+        env:
+          ConnectionStrings__Default: "Host=localhost;Port=5432;Database=studyhive;Username=studyhive;Password=studyhive_dev"
+
+  web:
+    name: web (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm run lint
+        working-directory: web
+      - run: npm run test
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  agent:
+    name: agent (FastAPI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+        working-directory: agent
+      - run: pytest -q
+        working-directory: agent
+        env:
+          # ENVIRONMENT defaults to "production" (fail-safe) — CI has no real internal API key to
+          # protect, so it opts into the same "development" leniency local dev gets from `.env`.
+          ENVIRONMENT: development
+
+  mobile:
+    name: mobile (Flutter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+      - run: flutter pub get
+        working-directory: mobile
+      - run: flutter analyze
+        working-directory: mobile
+      - run: flutter test
+        working-directory: mobile

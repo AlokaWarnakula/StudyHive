@@ -1,0 +1,46 @@
+# ---- .NET (api/) ----
+bin/
+obj/
+*.user
+*.suo
+
+# ---- Node (web/) ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# ---- Python (agent/) ----
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# ---- Flutter (mobile/) ----
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/android/local.properties
+mobile/**/ios/Flutter/.last_build_id
+
+# ---- Env / secrets ----
+.env
+.env.local
+*.env
+!.env.example
+
+# ---- Editors / OS ----
+.vs/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Local DevTeam artifacts ----
+knowledge/
