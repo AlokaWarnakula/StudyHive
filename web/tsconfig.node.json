@@ -19,5 +19,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  // tests/ holds build-tooling tests (they run vite and read dist/), so they belong to the Node
+  // project rather than the browser one — src/ must not see Node globals.
+  "include": ["vite.config.ts", "tests"]
 }

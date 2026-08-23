@@ -15,6 +15,21 @@ function mockFetchOnce(status: number, body: unknown) {
   );
 }
 
+function mockFetchSequence(...responses: Array<{ status: number; body: unknown }>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("Unexpected fetch call");
+      return {
+        ok: response.status >= 200 && response.status < 300,
+        status: response.status,
+        json: async () => response.body,
+      };
+    }),
+  );
+}
+
 describe("LoginPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -26,20 +41,26 @@ describe("LoginPage", () => {
   });
 
   it("signs a staff user in and lands on the dashboard", async () => {
-    mockFetchOnce(200, {
-      accessToken: "access-token",
-      accessTokenExpiresAt: "2026-01-01T00:00:00Z",
-      refreshToken: "refresh-token",
-      refreshTokenExpiresAt: "2026-02-01T00:00:00Z",
-      user: {
-        id: "11111111-1111-1111-1111-111111111111",
-        email: "librarian@studyhive.test",
-        fullName: "Test Librarian",
-        role: "Librarian",
-        isActive: true,
-        createdAt: "2026-01-01T00:00:00Z",
+    mockFetchSequence(
+      {
+        status: 200,
+        body: {
+          accessToken: "access-token",
+          accessTokenExpiresAt: "2026-01-01T00:00:00Z",
+          refreshToken: "refresh-token",
+          refreshTokenExpiresAt: "2026-02-01T00:00:00Z",
+          user: {
+            id: "11111111-1111-1111-1111-111111111111",
+            email: "librarian@studyhive.test",
+            fullName: "Test Librarian",
+            role: "Librarian",
+            isActive: true,
+            createdAt: "2026-01-01T00:00:00Z",
+          },
+        },
       },
-    });
+      { status: 200, body: { items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 } },
+    );
 
     render(
       <MemoryRouter initialEntries={["/login"]}>
@@ -47,11 +68,11 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "librarian@studyhive.test" } });
+    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "librarian@studyhive.test" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Booking Requests" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument());
     expect(useAuthStore.getState().user?.role).toBe("Librarian");
   });
 
@@ -77,7 +98,7 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "student@studyhive.test" } });
+    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "student@studyhive.test" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -101,7 +122,7 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "librarian@studyhive.test" } });
+    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "librarian@studyhive.test" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong-password" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
