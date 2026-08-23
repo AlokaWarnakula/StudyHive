@@ -10,6 +10,7 @@ using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Middleware;
 using StudyHive.Api.Security;
+using StudyHive.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -58,6 +59,7 @@ builder.Services.AddDbContext<StudyHiveDbContext>(options =>
 builder.Services.Configure<WorkflowLimitsOptions>(builder.Configuration.GetSection(WorkflowLimitsOptions.SectionName));
 builder.Services.Configure<DevSeedOptions>(builder.Configuration.GetSection(DevSeedOptions.SectionName));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.SectionName));
 
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
 var jwtIssuer = jwtSection["Issuer"] ?? "studyhive-dev";
@@ -120,10 +122,27 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(RateLimitPolicies.AuthEndpoints, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            // Keep independent budgets for register/login/refresh. A burst on one public auth
+            // operation should not starve a user from the others, while each remains capped per IP.
+            partitionKey: $"{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}:{httpContext.Request.Path}",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
+    // Partitioned per authenticated user (falling back to IP) rather than globally — one student
+    // hammering submit shouldn't throttle everyone else's. 10/minute comfortably covers legitimate
+    // retries (fixing a validation error, retrying after a transient failure) while capping abuse of
+    // an endpoint that triggers a real agent workflow run (Codex security review, P2).
+    options.AddPolicy(RateLimitPolicies.WorkflowSubmit, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
@@ -140,6 +159,37 @@ if (!builder.Environment.IsDevelopment())
         throw new InvalidOperationException("AllowedHosts must be an explicit host list outside Development.");
     }
 }
+
+// ---- Agent service (S1: Planner) ----
+// Same fail-closed pattern as Jwt:SigningKey/ConnectionStrings:Default above: a missing shared
+// secret outside Development would otherwise mean the API silently sends an unauthenticated (and
+// therefore rejected, per agent/app/security.py) internal request in production.
+var agentOptions = builder.Configuration.GetSection(AgentOptions.SectionName).Get<AgentOptions>() ?? new AgentOptions();
+if (!builder.Environment.IsDevelopment())
+{
+    if (string.IsNullOrWhiteSpace(agentOptions.InternalApiKey))
+    {
+        throw new InvalidOperationException("Agent:InternalApiKey must be configured outside Development.");
+    }
+    if (string.IsNullOrWhiteSpace(agentOptions.BaseUrl))
+    {
+        throw new InvalidOperationException("Agent:BaseUrl must be configured outside Development.");
+    }
+}
+
+builder.Services.AddHttpClient<IPlannerClient, PlannerClient>(client =>
+{
+    client.BaseAddress = new Uri(agentOptions.BaseUrl);
+    if (!string.IsNullOrWhiteSpace(agentOptions.InternalApiKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", agentOptions.InternalApiKey);
+    }
+});
+
+builder.Services.AddScoped<IBookingEligibilityService, BookingEligibilityService>();
+builder.Services.AddScoped<IWorkflowOrchestrationService, WorkflowOrchestrationService>();
+builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
+builder.Services.AddHostedService<WorkflowBackgroundService>();
 
 var app = builder.Build();
 

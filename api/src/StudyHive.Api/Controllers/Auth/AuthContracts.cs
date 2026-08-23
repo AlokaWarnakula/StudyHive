@@ -19,6 +19,15 @@ public sealed class RegisterRequest
 
     [Required, MaxLength(150)]
     public required string FullName { get; init; }
+
+    // Optional for backwards compatibility with clients that still use the separate
+    // student-profile onboarding endpoint. Current clients send both values so registration
+    // leaves the student ready to create a booking request immediately.
+    [MaxLength(80)]
+    public string? Department { get; init; }
+
+    [Range(1, 5)]
+    public int? YearOfStudy { get; init; }
 }
 
 public sealed class LoginRequest

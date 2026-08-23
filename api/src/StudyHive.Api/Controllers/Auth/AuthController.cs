@@ -27,10 +27,22 @@ public sealed class AuthController(
 
     [HttpPost("register")]
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.AuthEndpoints)]
     [ProducesResponseType(typeof(UserResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct)
     {
+        if ((request.Department is null) != (request.YearOfStudy is null))
+        {
+            ModelState.AddModelError(nameof(request.Department), "Department and yearOfStudy must be supplied together.");
+            return ValidationProblem(ModelState);
+        }
+        if (request.Department is not null && string.IsNullOrWhiteSpace(request.Department))
+        {
+            ModelState.AddModelError(nameof(request.Department), "Department cannot be blank.");
+            return ValidationProblem(ModelState);
+        }
+
         var normalizedEmail = request.Email.Trim();
         if (await db.Users.AnyAsync(u => u.Email == normalizedEmail, ct))
         {
@@ -51,6 +63,19 @@ public sealed class AuthController(
             IsActive = true,
         };
         db.Users.Add(user);
+
+        if (request.Department is not null && request.YearOfStudy is not null)
+        {
+            db.StudentProfiles.Add(new StudentProfile
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                StudentNumber = $"REG-{user.Id:N}"[..20].ToUpperInvariant(),
+                Department = request.Department.Trim(),
+                YearOfStudy = request.YearOfStudy.Value,
+            });
+        }
+
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, UserResponse.From(user));

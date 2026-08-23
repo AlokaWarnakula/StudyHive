@@ -30,7 +30,13 @@ public class AuthControllerTests(WebApplicationFactory<Program> factory)
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
         // RefreshTokens cascade-delete with their owning User (ON DELETE CASCADE).
-        db.Users.RemoveRange(db.Users.Where(u => _createdEmails.Contains(u.Email)));
+        var userIds = await db.Users
+            .Where(u => _createdEmails.Contains(u.Email))
+            .Select(u => u.Id)
+            .ToListAsync();
+        db.StudentProfiles.RemoveRange(db.StudentProfiles.Where(p => userIds.Contains(p.UserId)));
+        await db.SaveChangesAsync();
+        db.Users.RemoveRange(db.Users.Where(u => userIds.Contains(u.Id)));
         await db.SaveChangesAsync();
     }
 
@@ -70,6 +76,55 @@ public class AuthControllerTests(WebApplicationFactory<Program> factory)
         tokens.AccessToken.Should().NotBeNullOrWhiteSpace();
         tokens.RefreshToken.Should().NotBeNullOrWhiteSpace();
         tokens.User.Email.Should().Be(email);
+    }
+
+    [Fact]
+    public async Task Register_With_Onboarding_Fields_Creates_A_Student_Profile_Atomically()
+    {
+        var client = factory.CreateClient();
+        var email = UniqueEmail();
+        _createdEmails.Add(email);
+
+        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Password = Password,
+            FullName = "Ready Student",
+            Department = "Computing",
+            YearOfStudy = 3,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var registered = (await response.Content.ReadFromJsonAsync<UserResponse>(JsonOptions))!;
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        var profile = await db.StudentProfiles.SingleAsync(p => p.UserId == registered.Id);
+        profile.Department.Should().Be("Computing");
+        profile.YearOfStudy.Should().Be(3);
+        profile.StudentNumber.Should().StartWith("REG-");
+    }
+
+    [Fact]
+    public async Task Register_With_Only_One_Onboarding_Field_Returns_400_And_Creates_Nothing()
+    {
+        var client = factory.CreateClient();
+        var email = UniqueEmail();
+        _createdEmails.Add(email);
+
+        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterRequest
+        {
+            Email = email,
+            Password = Password,
+            FullName = "Incomplete Student",
+            Department = "Computing",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        (await db.Users.AnyAsync(u => u.Email == email)).Should().BeFalse();
     }
 
     [Fact]
