@@ -101,6 +101,15 @@ python -m venv .venv
 so the placeholder `INTERNAL_API_KEY` works locally. Outside Development, a missing or still-placeholder
 key refuses to start; see `agent/app/settings.py`.
 
+`GEMINI_API_KEY` is optional and left blank in `.env.example`. Blank (the default) keeps the Planner
+fully deterministic — one Google AI Studio key is enough for the whole service, it authenticates the
+project rather than any one agent. Set a real key to also have it ask Gemini for a short display
+summary of the student's objective — see `summarize_objective()` in `agent/app/agents/planner.py` for
+exactly what that call can and cannot influence, and why any failure or timeout falls back to no
+summary rather than an error. `GEMINI_MODEL` is a second optional override (defaults to
+`DEFAULT_GEMINI_MODEL` in `agent/app/settings.py`) for whichever Gemini Flash model id your account
+currently has access to.
+
 Health at `http://localhost:8001/health`. Run tests: `pytest` from `agent/` (with the venv active).
 
 ### 5. Mobile app
@@ -131,7 +140,14 @@ outside Development, and never real credentials. All four share one password:
 Password: `Dev-Only-Passw0rd!`. The React dashboard only accepts staff roles; the Flutter app only
 accepts Student — each client rejects the other's accounts with a clear message rather than a
 confusing failed-login state. Anyone can also self-register a new Student account from the mobile
-app or `POST /api/auth/register` — staff accounts can't be created that way on purpose.
+app or `POST /api/auth/register` — staff accounts can't be created that way on purpose. Current
+clients send `department` and `yearOfStudy` during registration, so the API creates the User and
+StudentProfile in one transaction; older clients may still use the separate profile endpoint.
+
+The same Development seed adds three consumables and eight deterministic booking requests spanning
+Draft, Processing, PendingApproval, Approved, Rejected, Cancelled, Completed and Failed. Their
+workflow plans and step logs make every S1 status screen useful immediately. The seed is serialized
+with a PostgreSQL advisory lock and is safe to run repeatedly or from concurrent local test hosts.
 
 ## Relay build order
 
@@ -139,3 +155,35 @@ Shared foundation (this scaffold) → **S1** Requests & Workflow + Planner agent
 Availability + Scheduling agent → **S3** Consumables & Stock + Resource agent → **S4** Costing,
 Validation, Approval & Audit. Nobody merges into another owner's component — see DOCS sec. 03/04 for
 the full ownership table and handoff gates.
+
+### S1 — Requests & Workflow + Planner: implemented
+
+- **API**: `POST/GET /api/student-profiles` (+ `/me`, `/{id}`, `/{id}/eligibility`, admin `PUT`);
+  `POST/GET/PUT/DELETE /api/booking-requests` (+ `/{id}/submit`, `/{id}/status`). Eligibility (active,
+  not suspended, no penalty points, weekly quota) is centralized in `Services/BookingEligibilityService.cs`.
+  Cancel is a status change (`Cancelled`), never a physical delete.
+- **Workflow**: submit enqueues onto an in-process `Channel<Guid>` (`Services/WorkflowQueue.cs`) read
+  by `WorkflowBackgroundService`, matching DOCS §11's "no Redis, no Hangfire" background-job design.
+  `WorkflowOrchestrationService` calls the Planner Agent (`Services/PlannerClient.cs`, retried per
+  `WorkflowLimits`), then persists contract-shaped Scheduling/Resource/Validation stub steps —
+  clearly flagged `"stub": true` — until S2-S4 replace each one. Every path (ineligible, planner
+  unreachable, workflow timeout) ends in a terminal status with an error code; nothing is left
+  half-updated.
+- **Agent**: `POST /planner/plan` (`agent/app/agents/planner.py`) — deterministic: the plan shape,
+  agents/actions, and eligibility never come from a model, and `objective` free text can never
+  re-derive eligibility (the prompt-injection defence DOCS §11 asks for). If `GEMINI_API_KEY` is
+  configured, an optional Gemini call additionally summarizes `objective` for step 1's params —
+  bounded, validated, and non-authoritative; unset (the default) skips it entirely. Covered by
+  `agent/tests/test_planner.py`.
+- **Web** (staff): Booking Requests list (search/filter/sort/paginate) and detail with a live status
+  timeline; Student Profiles list and detail.
+- **Mobile** (student): the complete 16-screen reference flow: registration, four-tab home shell,
+  three-step request creation, workflow progress, room browsing/detail/schedule, quotation/history,
+  QR check-in, checked-in success, booking detail and profile. Authentication, profile and requests
+  use real APIs. Not-yet-owned S2-S4 screens use typed preview data only in Debug builds.
+- **Tests**: `api/tests/StudyHive.Api.Tests/{StudentProfilesControllerTests,BookingRequestsControllerTests}.cs`
+  (54/54 passing against a real Postgres, including registration/profile atomicity, concurrent
+  idempotent seeding and workflow success/reject/unreachable paths via a fake Planner client),
+  `agent/` (27/27 — includes the Gemini summary path, all monkeypatched, no
+  network; `agent/tests/conftest.py` forces this regardless of any real key in a developer's local
+  `.env`), and `mobile` (19/19).
