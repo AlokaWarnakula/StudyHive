@@ -1,9 +1,11 @@
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The well-known placeholder from .env.example. Anyone who reads this source file (or the repo
 # history) knows this value, so it must never authenticate a real deployment.
 PLACEHOLDER_INTERNAL_API_KEY = "dev-only-internal-key-DO-NOT-USE-IN-PRODUCTION"
+
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 
 
 class Settings(BaseSettings):
@@ -21,6 +23,10 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     gemini_api_key: str = ""
+    # Lets whoever holds the key point at whichever Gemini Flash model their Google AI Studio
+    # account currently has access to, without a code change — model availability/naming changes
+    # faster than this file does.
+    gemini_model: str = DEFAULT_GEMINI_MODEL
     internal_api_key: str = PLACEHOLDER_INTERNAL_API_KEY
 
     # Mirrors api/appsettings.json WorkflowLimits — see DOCS Master Plan sec. 11.
@@ -29,6 +35,15 @@ class Settings(BaseSettings):
     whole_workflow_timeout_seconds: int = 180
     max_retries_per_step: int = 2
     max_llm_tokens_per_run: int = 8000
+
+    @field_validator("gemini_model", mode="before")
+    @classmethod
+    def _blank_gemini_model_means_use_the_default(cls, v: str | None) -> str:
+        # Unlike GROQ_API_KEY/GEMINI_API_KEY (blank == intentionally disabled), an empty
+        # GEMINI_MODEL isn't a valid model id — .env.example ships this line blank so copying it
+        # verbatim must still resolve to DEFAULT_GEMINI_MODEL, not an empty string that breaks
+        # every Gemini call once a key is configured.
+        return v or DEFAULT_GEMINI_MODEL
 
     @model_validator(mode="after")
     def _require_a_real_internal_api_key_outside_development(self) -> "Settings":

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, FastAPI
 
+from app.agents.planner import plan as run_planner
+from app.schemas import PlannerRequest, PlannerResponse
 from app.security import require_internal_api_key
 from app.settings import settings
 
@@ -34,6 +36,12 @@ def workflow_limits() -> dict[str, int]:
         "maxRetriesPerStep": settings.max_retries_per_step,
         "maxLlmTokensPerRun": settings.max_llm_tokens_per_run,
     }
+
+
+@internal_router.post("/planner/plan", response_model=PlannerResponse)
+def planner_plan(request: PlannerRequest) -> PlannerResponse:
+    """S1's Planner Agent — see app/agents/planner.py for the tool sequence and DOCS §11 for the contract."""
+    return run_planner(request)
 
 
 app.include_router(internal_router)
