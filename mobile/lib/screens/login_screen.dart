@@ -3,7 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../state/auth_provider.dart';
+import '../theme/app_theme.dart';
+import '../widgets/studyhive_ui.dart';
+import 'register_screen.dart';
 
+/// M-01 "Sign in" — POST /api/auth/login. The reference shows the failure
+/// inline in an accent-bordered panel, never a popup.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -35,7 +40,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await context.read<AuthProvider>().login(_emailController.text.trim(), _passwordController.text);
+      await context
+          .read<AuthProvider>()
+          .login(_emailController.text.trim(), _passwordController.text);
     } on WrongRoleException catch (e) {
       setState(() => _error = e.message);
     } on ApiException catch (e) {
@@ -50,49 +57,76 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Sign in to StudyHive',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 24),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    autofillHints: const [AutofillHints.email],
-                    decoration: const InputDecoration(labelText: 'Email'),
-                    validator: (value) => (value == null || value.isEmpty) ? 'Email is required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    autofillHints: const [AutofillHints.password],
-                    decoration: const InputDecoration(labelText: 'Password'),
-                    validator: (value) => (value == null || value.isEmpty) ? 'Password is required' : null,
-                    onFieldSubmitted: (_) => _submit(),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 390),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Center(
+                        child: Ph(label: 'logo', width: 56, height: 56)),
+                    const SizedBox(height: 16),
+                    Text('StudyHive',
+                        textAlign: TextAlign.center,
+                        style: headingStyle(
+                            fontSize: 32, height: 1.12, letterSpacing: -0.5)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Book a study room in a few taps.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: AppColors.muted),
+                    ),
+                    const SizedBox(height: 22),
+                    ShTextField(
+                      label: 'University email',
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'University email is required'
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    ShTextField(
+                      label: 'Password',
+                      controller: _passwordController,
+                      obscureText: true,
+                      autofillHints: const [AutofillHints.password],
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Password is required'
+                          : null,
+                      onFieldSubmitted: (_) => _submit(),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 14),
+                      InlineError(_error!),
+                    ],
+                    const SizedBox(height: 14),
+                    PrimaryButton(
+                      _submitting ? 'Signing in…' : 'Sign in',
+                      onPressed: _submitting ? null : _submit,
+                    ),
+                    const SizedBox(height: 10),
+                    SecondaryButton(
+                      'Create an account',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const RegisterScreen()),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Center(
+                      child: ShLink('Forgot password',
+                          onPressed: () {}, fontSize: 13),
+                    ),
                   ],
-                  const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: Text(_submitting ? 'Signing in…' : 'Sign in'),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

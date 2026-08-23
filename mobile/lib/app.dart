@@ -16,7 +16,8 @@ class StudyHiveApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: Consumer<AuthProvider>(
-        builder: (context, auth, _) => auth.isAuthenticated ? const HomeScreen() : const LoginScreen(),
+        builder: (context, auth, _) =>
+            auth.isAuthenticated ? const HomeScreen() : const LoginScreen(),
       ),
     );
   }

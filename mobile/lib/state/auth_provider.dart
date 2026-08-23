@@ -26,6 +26,7 @@ class AuthProvider extends ChangeNotifier {
   String? _accessToken;
   String? _refreshToken;
   String? _studentName;
+  String? _studentEmail;
 
   AuthProvider({TokenStore? tokenStore, ApiClient? apiClient})
       : _tokenStore = tokenStore ?? const SecureTokenStore(),
@@ -33,6 +34,11 @@ class AuthProvider extends ChangeNotifier {
 
   bool get isAuthenticated => _accessToken != null;
   String? get studentName => _studentName;
+  String? get studentEmail => _studentEmail;
+
+  /// Shared with the other feature providers (see main.dart) so they always send whatever access
+  /// token is currently active — logging in/out updates this same instance's token in place.
+  ApiClient get apiClient => _apiClient;
 
   Future<void> login(String email, String password) async {
     final response = await _apiClient.post('/api/auth/login', body: {
@@ -42,14 +48,33 @@ class AuthProvider extends ChangeNotifier {
 
     final user = response['user'] as Map<String, dynamic>;
     if (user['role'] != 'Student') {
-      throw WrongRoleException("This account can't sign in to the mobile app. Use the StudyHive staff dashboard instead.");
+      throw WrongRoleException(
+          "This account can't sign in to the mobile app. Use the StudyHive staff dashboard instead.");
     }
 
     await _applySession(
       accessToken: response['accessToken'] as String,
       refreshToken: response['refreshToken'] as String,
       studentName: user['fullName'] as String,
+      studentEmail: user['email'] as String,
     );
+  }
+
+  Future<void> register({
+    required String fullName,
+    required String email,
+    required String department,
+    required int yearOfStudy,
+    required String password,
+  }) async {
+    await _apiClient.post('/api/auth/register', body: {
+      'fullName': fullName,
+      'email': email,
+      'department': department,
+      'yearOfStudy': yearOfStudy,
+      'password': password,
+    });
+    await login(email, password);
   }
 
   /// Attempts to restore a session from storage on app start by exchanging the stored refresh
@@ -69,6 +94,7 @@ class AuthProvider extends ChangeNotifier {
         accessToken: response['accessToken'] as String,
         refreshToken: response['refreshToken'] as String,
         studentName: user['fullName'] as String,
+        studentEmail: user['email'] as String,
       );
     } on ApiException {
       // Expired/revoked — fall through to a clean logged-out state.
@@ -82,17 +108,24 @@ class AuthProvider extends ChangeNotifier {
     if (refreshToken != null) {
       // Best-effort: an unreachable API shouldn't block the user from logging out locally.
       try {
-        await _apiClient.post('/api/auth/logout', body: {'refreshToken': refreshToken});
+        await _apiClient
+            .post('/api/auth/logout', body: {'refreshToken': refreshToken});
       } catch (_) {
         // ignored
       }
     }
   }
 
-  Future<void> _applySession({required String accessToken, required String refreshToken, required String studentName}) async {
+  Future<void> _applySession({
+    required String accessToken,
+    required String refreshToken,
+    required String studentName,
+    required String studentEmail,
+  }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
     _studentName = studentName;
+    _studentEmail = studentEmail;
     _apiClient.accessToken = accessToken;
     await _tokenStore.write(_accessTokenKey, accessToken);
     await _tokenStore.write(_refreshTokenKey, refreshToken);
@@ -103,6 +136,7 @@ class AuthProvider extends ChangeNotifier {
     _accessToken = null;
     _refreshToken = null;
     _studentName = null;
+    _studentEmail = null;
     _apiClient.accessToken = null;
     await _tokenStore.delete(_accessTokenKey);
     await _tokenStore.delete(_refreshTokenKey);

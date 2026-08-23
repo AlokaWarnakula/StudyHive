@@ -13,6 +13,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Sign in to StudyHive'), findsOneWidget);
+    expect(find.text('StudyHive'), findsOneWidget);
+    expect(find.text('Book a study room in a few taps.'), findsOneWidget);
   });
 }
