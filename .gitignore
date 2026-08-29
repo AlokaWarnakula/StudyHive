@@ -44,3 +44,6 @@ Thumbs.db
 
 # ---- Local DevTeam artifacts ----
 knowledge/
+
+# DevTeam local tooling state (per-machine, auto-refreshed; not project source)
+.devteam/
