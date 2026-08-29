@@ -23,30 +23,57 @@ export type { PagedResult } from "./bookingRequests";
 
 export type ApprovalDecisionKind = "Approved" | "Rejected" | "RevisionRequested";
 
+/**
+ * Mirrors `approval_decisions`. Note there is no bookingRequestId column — a decision is attached
+ * to a quotation, and the quotation carries the request. Join through it.
+ */
 export interface ApprovalDecision {
   id: string;
-  bookingRequestId: string;
-  quotationId: string | null;
-  decision: ApprovalDecisionKind;
+  /** NOT NULL in the database. */
+  quotationId: string;
   decidedBy: string;
-  reason: string | null;
+  /** The role held at the time of the decision, stored so a later role change cannot rewrite history. */
+  decidedByRole: string;
+  decision: ApprovalDecisionKind;
+  comments: string | null;
   decidedAt: string;
 }
 
+/**
+ * Mirrors `quotation_line_items`. `chk_line_shape` enforces the pairing: a Room line carries a
+ * roomBookingId and no consumableId, a Consumable line the reverse. Neither may be both or neither.
+ */
 export interface QuotationLineItem {
   id: string;
-  description: string;
+  quotationId: string;
+  itemType: "Room" | "Consumable";
+  roomBookingId: string | null;
+  consumableId: string | null;
+  itemName: string;
   quantity: number;
   unitPrice: number;
+  /** READ-ONLY. A generated column: `quantity * unit_price`. */
   lineTotal: number;
+  createdAt: string;
 }
 
+/** Mirrors `quotations`. */
 export interface Quotation {
   id: string;
   bookingRequestId: string;
-  total: number;
+  version: number;
+  roomFee: number;
+  consumableCost: number;
+  /** READ-ONLY. A generated column: `room_fee + consumable_cost`. */
+  totalAmount: number;
+  /** The budget as it stood when the quote was made, copied rather than joined. */
   budgetSnapshot: number;
+  /** READ-ONLY. A generated column: `total_amount <= budget_snapshot`. */
+  withinBudget: boolean;
+  currency: string;
+  status: "Draft" | "Proposed" | "Approved" | "Rejected" | "Superseded";
   createdAt: string;
+  updatedAt: string;
   lineItems: QuotationLineItem[];
 }
 
@@ -61,12 +88,17 @@ export interface WorkflowExecutionSummary {
   completedAt: string | null;
 }
 
+/** Mirrors `audit_logs`. Append-only — there is deliberately no write function in this client. */
 export interface AuditLogEntry {
   id: string;
-  action: string;
-  entityName: string;
-  entityId: string | null;
+  /** Null when the acting account was deleted: the FK is ON DELETE SET NULL so the trail outlives it. */
   userId: string | null;
+  correlationId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  details: unknown;
+  ipAddress: string | null;
   createdAt: string;
 }
 

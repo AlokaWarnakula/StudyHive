@@ -21,26 +21,40 @@ import type { PagedResult } from "./bookingRequests";
 
 export type { PagedResult } from "./bookingRequests";
 
+/** Mirrors the `consumables` table. Field names are the real columns — see DATABASE.md. */
 export interface Consumable {
   id: string;
   name: string;
-  category: string;
+  description: string | null;
   unit: string;
   unitPrice: number;
-  quantityOnHand: number;
-  reorderLevel: number;
+  stockQuantity: number;
+  reservedQuantity: number;
+  /** READ-ONLY. A generated column: `stock_quantity - reserved_quantity`. Never send it. */
+  availableQuantity: number;
+  minStockLevel: number;
   isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
+/** Mirrors `stock_transactions`. Append-only ledger. */
 export interface StockTransaction {
   id: string;
   consumableId: string;
+  /** Matches the CHECK constraint on `transaction_type` exactly. */
+  transactionType: "StockIn" | "StockOut" | "Reserve" | "Release" | "Adjust";
+  /** CHECK is `<> 0`, not `> 0` — a StockOut is negative. */
   quantity: number;
-  kind: "StockIn" | "Reserved" | "Issued" | "Released" | "Adjustment";
-  occurredAt: string;
-  note: string | null;
+  balanceAfter: number;
+  bookingRequestId: string | null;
+  stockReservationId: string | null;
+  notes: string | null;
+  createdBy: string;
+  createdAt: string;
 }
 
+/** W-20: the consumable plus its ledger rows. */
 export interface ConsumableDetail extends Consumable {
   ledger: StockTransaction[];
 }
@@ -60,12 +74,16 @@ export interface StockReservation {
   createdAt: string;
 }
 
+/** Mirrors `suppliers`. `contactEmail` is citext in the database — casing does not create a second row. */
 export interface Supplier {
   id: string;
   name: string;
   contactEmail: string;
-  leadTimeDays: number;
+  phone: string;
+  address: string | null;
   isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ListParams {
@@ -100,13 +118,20 @@ export function listLowStock(token: string): Promise<PagedResult<Consumable>> {
   return apiFetch(`/api/consumables/low-stock`, { token });
 }
 
+/** `availableQuantity` is generated and `reservedQuantity` is moved by reservations, so neither is
+ * part of a create or update body. Stock arrives through `stockIn`, not through this. */
+export type ConsumableWriteBody = Pick<
+  Consumable,
+  "name" | "description" | "unit" | "unitPrice" | "minStockLevel"
+>;
+
 // TODO(S3): implement POST /api/consumables
-export function createConsumable(token: string, body: Omit<Consumable, "id" | "isActive">): Promise<Consumable> {
+export function createConsumable(token: string, body: ConsumableWriteBody): Promise<Consumable> {
   return apiFetch(`/api/consumables`, { method: "POST", token, body });
 }
 
 // TODO(S3): implement PUT /api/consumables/{id}
-export function updateConsumable(token: string, id: string, body: Omit<Consumable, "id">): Promise<Consumable> {
+export function updateConsumable(token: string, id: string, body: ConsumableWriteBody): Promise<Consumable> {
   return apiFetch(`/api/consumables/${id}`, { method: "PUT", token, body });
 }
 
@@ -155,12 +180,14 @@ export function listSuppliers(token: string, params: ListParams = {}): Promise<P
   return apiFetch(`/api/suppliers${buildQuery(params)}`, { token });
 }
 
+export type SupplierWriteBody = Pick<Supplier, "name" | "contactEmail" | "phone" | "address">;
+
 // TODO(S3): implement POST /api/suppliers
-export function createSupplier(token: string, body: Omit<Supplier, "id" | "isActive">): Promise<Supplier> {
+export function createSupplier(token: string, body: SupplierWriteBody): Promise<Supplier> {
   return apiFetch(`/api/suppliers`, { method: "POST", token, body });
 }
 
 // TODO(S3): implement PUT /api/suppliers/{id}
-export function updateSupplier(token: string, id: string, body: Omit<Supplier, "id">): Promise<Supplier> {
+export function updateSupplier(token: string, id: string, body: SupplierWriteBody): Promise<Supplier> {
   return apiFetch(`/api/suppliers/${id}`, { method: "PUT", token, body });
 }

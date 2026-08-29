@@ -60,7 +60,13 @@ export interface MaintenanceWindow {
   reason: string;
 }
 
-/** One block in the W-15 week grid / M-11 free-times list. */
+/**
+ * One block in the W-15 week grid / M-11 free-times list.
+ *
+ * A DERIVED view model, not a table row: the endpoint merges `room_bookings` and
+ * `maintenance_windows` into one timeline. `kind` is yours to define — it is not a status column,
+ * so it does not have to match `room_bookings.status` (Confirmed / Cancelled / Completed / NoShow).
+ */
 export interface ScheduleSlot {
   roomId: string;
   roomName: string;
