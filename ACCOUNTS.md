@@ -14,7 +14,24 @@ HTTP 200 with the correct role and an access token.
 
 ## The accounts
 
-Password for all four: `Dev-Only-Passw0rd!`
+Password for all four:
+
+```
+Dev-Only-Passw0rd!
+```
+
+**Copy and paste it — do not retype it.** Three characters catch people out:
+
+- `Passw0rd` uses a **zero**, not a capital O.
+- It ends with an **exclamation mark**.
+- Both hyphens matter.
+
+`Dev-Only-PasswOrd!` (letter O) and `Dev-Only-Passw0rd` (no `!`) both fail with "email or password
+is incorrect" — verified against the running API.
+
+If your browser's password manager autofills this field, it will overwrite what you pasted with a
+saved credential and the login fails for a reason the screen cannot explain. Clear the field and
+paste again, or use a private window.
 
 | Role | Email | Signs in to | Sees |
 |---|---|---|---|
