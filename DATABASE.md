@@ -467,7 +467,21 @@ DELETE FROM users WHERE email LIKE '%@studyhive.dev';
 Their booking requests and workflows cascade or restrict accordingly; check what remains before
 deleting on anything you care about.
 
-### 5. What changes in the app
+### 5. Comment out every `.env` line you have not filled in
+
+This is the one that will waste your afternoon. An environment variable **overrides** the value in
+`appsettings`, so an unfilled placeholder is worse than no variable at all:
+
+| Left as a placeholder | What happens |
+|---|---|
+| `AllowedHosts=<your-domain.com>` | Every request to localhost returns **400 Bad Request — Invalid Hostname**, before it ever reaches the API |
+| `Cors__AllowedOrigins__0=https://<...>` | Replaces the dev origin list, so the web app on 5173 and the mobile build on 8090 are both blocked |
+| `Jwt__SigningKey=<generate-...>` | A signing key shorter than 32 bytes fails at startup |
+
+Only `ConnectionStrings__Default` is needed to point at Neon. Leave everything else commented until
+you actually deploy. `.env.example` now ships with them commented for this reason.
+
+### 6. What changes in the app
 
 Nothing in the code. `Program.cs` reads `ConnectionStrings:Default` and `ConnectionStrings__Default`
 from the environment overrides it, so no committed file needs editing. Outside Development the API
