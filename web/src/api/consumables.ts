@@ -47,10 +47,16 @@ export interface ConsumableDetail extends Consumable {
 
 export interface StockReservation {
   id: string;
-  bookingRequestId: string;
+  bookingRequestItemId: string;
   consumableId: string;
   quantity: number;
-  status: "Held" | "Confirmed" | "Issued" | "Released";
+  /**
+   * These four values are the ones the database will accept — see the CHECK constraint on
+   * `stock_reservations.status` in DATABASE.md. The W-22 screen labels the same lifecycle as
+   * "held → confirmed → issued → released"; that is display wording, not the stored value. Do not
+   * "correct" this union to match the screen, and do not add a fifth value without a migration.
+   */
+  status: "Pending" | "Reserved" | "Released" | "Used";
   createdAt: string;
 }
 

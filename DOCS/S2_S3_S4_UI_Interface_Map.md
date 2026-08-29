@@ -78,7 +78,7 @@ shape and the screens above keep working.
 | W-19 Consumables | `web/src/pages/store/ConsumablesPage.tsx` | `mobile/lib/screens/consumables/browse_consumables_screen.dart` | `GET /api/consumables` |
 | W-20 Consumable detail + stock-in | `web/src/pages/store/ConsumableDetailPage.tsx` | `mobile/lib/screens/consumables/consumable_detail_screen.dart` | `GET /api/consumables/{id}`, `POST /api/consumables/{id}/stock-in` |
 | W-21 Low stock alerts | `web/src/pages/store/LowStockPage.tsx` | — staff only | `GET /api/consumables/low-stock` |
-| W-22 Stock reservations | `web/src/pages/store/ReservationsPage.tsx` | — staff only | `GET /api/stock-reservations?status=` |
+| W-22 Stock reservations | `web/src/pages/store/ReservationsPage.tsx` | — staff only | `GET /api/stock-reservations?status=` (see the status note below) |
 | W-23 Suppliers | `web/src/pages/store/SuppliersPage.tsx` | — staff only | `GET/POST/PUT /api/suppliers` |
 | W-24 Consumable usage report | `web/src/pages/reports/ConsumableUsagePage.tsx` | — staff only | `GET /api/reports/consumable-usage` |
 | Quantity picker | — | `mobile/lib/screens/consumables/select_consumables_screen.dart` | reads `GET /api/consumables` |
@@ -88,6 +88,12 @@ Mobile client you create: `mobile/lib/api/consumables_api.dart` **(you create th
 
 Web routes: `/consumables`, `/consumables/low-stock`, `/consumables/:id`, `/reservations`,
 `/suppliers`, `/reports/consumables`.
+
+**Reservation status — read this before you write the query.** `stock_reservations.status` accepts
+exactly four values: **`Pending`, `Reserved`, `Released`, `Used`**. The W-22 screen describes the
+lifecycle as "held → confirmed → issued → released" — that is display wording, and three of those
+four words would be rejected by the CHECK constraint. Filter and store the database's values; label
+them whatever the screen wants. Adding a fifth value needs a migration.
 
 One thing to know: `select_consumables_screen.dart` is deliberately **not** wired into
 `create_request_screen.dart`. S1's create form ships with no consumable selector on purpose, because
