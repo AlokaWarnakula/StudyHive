@@ -1,95 +1,172 @@
 # S2/S3/S4 UI interface map
 
-Every web and mobile screen for S2 (Rooms & Availability), S3 (Consumables & Stock), and S4
-(Costing, Validation, Approval & Audit) now exists as a **presentation shell** — real routes, real
-navigation, real typed view models, real loading/empty/unavailable/error states — with no live data
-and no calls to an endpoint that doesn't exist yet. This is the map from each shell to what its owner
-needs to build to make it real: the API endpoint, and where the typed view model already lives.
+Every web and mobile screen for S2 (Rooms & Availability), S3 (Consumables & Stock) and S4
+(Costing, Validation, Approval & Audit) already exists as a **presentation shell**: a real route,
+real navigation, the reference layout, and an honest "not built yet" state. What none of them has is
+data, because the endpoint behind it does not exist yet. That is your job.
 
-No frontend code changes are needed to "turn a screen on" beyond: build the endpoint, replace the
-shell's hardcoded `status="unavailable"` with a real fetch, and pass real data as `children`/rows.
-The shells (`ListShell`, `DetailShell`, `FormShell`, `DashboardShell` on web;
-`ListShell`/`DetailShell` on mobile) already handle every other state.
+This is the map from each shell to the file you edit and the endpoint you build.
 
-## How to "turn on" a shell (both clients, same shape)
+> **Paths in this document were verified against the real tree on 2026-08-29.** An earlier version of
+> this file pointed at `pages/librarian/…`, `pages/admin/…` and `web/src/types/*.ts`, which were
+> removed when the web app was restructured to the 26-screen UI reference. If you are reading a copy
+> that still mentions those, it is stale — the paths below are the current ones.
 
-**Web** (e.g. `web/src/pages/librarian/rooms/RoomsListPage.tsx`): add a `useEffect` that calls a new
-`web/src/api/rooms.ts` client (same pattern as `web/src/api/bookingRequests.ts`), track
-`status`/`data` in `useState`, and pass `status="ready"` with real `<tbody>` rows once loaded — see
-`RequestsPage.tsx` for the exact reference pattern (search/filter/sort/pagination all already solved
-there).
+Each page file already carries its own screen ID, endpoint and owner in a docstring at the top. If
+this document and the docstring ever disagree, **the docstring wins** — it lives next to the code.
 
-**Mobile** (e.g. `mobile/lib/screens/rooms/browse_rooms_screen.dart`): replace the typed Debug-only
-preview source with a
-`mobile/lib/api/rooms_api.dart` client (same pattern as `booking_requests_api.dart`), a
-`RoomsProvider extends ChangeNotifier` (same pattern as `booking_requests_provider.dart`, registered
-in `main.dart`'s `MultiProvider` sharing `authProvider.apiClient`), then map its real state into the
-existing reference-aligned screens.
+## How to turn a shell on
+
+**Web.** Every S2/S3/S4 page currently reads from the development fixture set:
+
+```tsx
+const fixture = useFixture((f) => f.rooms);
+if (!fixture.enabled) return <Screen title="Rooms"><NotBuiltYet owner="S2 rooms" what="The room list" /></Screen>;
+```
+
+`useFixture` (`web/src/dev/useFixture.ts`) is compiled out of a production build entirely, so these
+screens ship the honest unavailable state rather than demo data — `web/tests/fixtures.prod.test.ts`
+checks that claim rather than trusting it. To make a screen real:
+
+1. Add an API client beside the existing ones in `web/src/api/` — copy the shape of
+   `web/src/api/bookingRequests.ts`, which is a real, working S1 client.
+2. Replace the `useFixture` call with `useState` + `useEffect` against your client.
+3. Keep the `NotBuiltYet` branch for the error/empty path, or swap it for a real empty state.
+
+**`web/src/pages/requests/RequestsPage.tsx` is your reference implementation.** It is a genuine S1
+screen and it already solves search, status filter, sort, pagination and the empty state against the
+real API. Read it before writing your first list page.
+
+There is no `web/src/types/` directory. Types live next to the client that returns them (see
+`web/src/api/bookingRequests.ts`), and the fixture shapes are in `web/src/dev/fixtures.ts`.
+
+**Mobile.** Same idea. Add a client in `mobile/lib/api/` copying `booking_requests_api.dart`, add a
+`ChangeNotifier` provider copying `mobile/lib/state/booking_requests_provider.dart`, and register it
+in `main.dart`'s `MultiProvider` sharing `authProvider.apiClient`. View models for the S2/S3/S4
+screens already exist: `mobile/lib/models/room.dart`, `consumable.dart`, `quotation.dart`.
+
+Files marked **(you create this)** below do not exist yet and are not supposed to.
 
 ## S2 — Rooms & Availability
 
-View models: `web/src/types/rooms.ts` (web) / `mobile/lib/models/room.dart` (mobile).
+| Screen | Web file | Mobile file | Endpoint to build |
+|---|---|---|---|
+| W-13 Rooms + add/edit dialog | `web/src/pages/rooms/RoomsPage.tsx` | `mobile/lib/screens/rooms/browse_rooms_screen.dart` (M-09) | `GET /api/rooms`, `POST/PUT /api/rooms` |
+| W-14 Room detail & equipment | `web/src/pages/rooms/RoomDetailPage.tsx` | `mobile/lib/screens/rooms/room_detail_screen.dart` (M-10) | `GET /api/rooms/{id}` |
+| W-15 Room calendar | `web/src/pages/rooms/RoomCalendarPage.tsx` | `mobile/lib/screens/rooms/room_schedule_screen.dart` (M-11) | `GET /api/rooms/schedule?from=&to=` |
+| W-16 Equipment | `web/src/pages/rooms/EquipmentPage.tsx` | — staff only | `GET /api/equipment` |
+| W-17 Maintenance windows | `web/src/pages/rooms/MaintenancePage.tsx` | — staff only | `POST /api/maintenance-windows` |
+| W-18 Room utilisation report | `web/src/pages/reports/RoomUtilisationPage.tsx` | — staff only | `GET /api/reports/room-usage` |
+| M-14 QR check-in | — no staff QR flow | `mobile/lib/screens/rooms/qr_check_in_screen.dart` | `POST /api/room-bookings/{id}/check-in` |
+| M-15 Checked in | — | `mobile/lib/screens/rooms/checked_in_screen.dart` | success state of the above |
 
-| Screen (mockup name) | Web file | Mobile file | View model | Suggested endpoint |
-|---|---|---|---|---|
-| Rooms list | `pages/librarian/rooms/RoomsListPage.tsx` | `screens/rooms/browse_rooms_screen.dart` | `RoomListItem` | `GET /api/rooms` (paginated, per DOCS §12 list convention) |
-| Room detail + equipment | `pages/librarian/rooms/RoomDetailPage.tsx` | `screens/rooms/room_detail_screen.dart` | `RoomDetail` | `GET /api/rooms/{id}` |
-| Add/Edit room form | `pages/librarian/rooms/RoomFormPage.tsx` | — (staff-only) | — | `POST /api/rooms`, `PUT /api/rooms/{id}` |
-| Room schedule calendar | `pages/librarian/rooms/RoomScheduleCalendarPage.tsx` | `screens/rooms/room_schedule_screen.dart` | `RoomScheduleSlot` | `GET /api/rooms/{id}/schedule?from=&to=` |
-| Equipment management | `pages/librarian/rooms/EquipmentManagementPage.tsx` | — (staff-only) | `EquipmentTypeItem` | `GET/POST /api/equipment-types` |
-| Maintenance windows | `pages/librarian/rooms/MaintenanceWindowsPage.tsx` | — (staff-only) | `MaintenanceWindowItem` | `GET/POST /api/maintenance-windows` |
-| Room usage dashboard | `pages/librarian/rooms/RoomUsageDashboardPage.tsx` | — (staff-only) | `RoomUsageStat` | `GET /api/rooms/usage-report` |
-| QR check-in | — (staff has no QR flow) | `screens/rooms/qr_check_in_screen.dart` | — | Needs a scan endpoint, e.g. `POST /api/rooms/check-in { qrCode }` |
+Web clients you create: `web/src/api/rooms.ts` **(you create this)**.
+Mobile client you create: `mobile/lib/api/rooms_api.dart` **(you create this)**.
 
-Web routes: `/rooms`, `/rooms/:id`, `/rooms/new`, `/rooms/schedule`, `/rooms/equipment`,
-`/rooms/maintenance`, `/rooms/usage` (all under the `AreaLayout` tab strip in `App.tsx`).
+Web routes, already wired in `web/src/App.tsx`: `/rooms`, `/rooms/calendar`, `/rooms/:id`,
+`/equipment`, `/maintenance`, `/reports/rooms`.
+
+Your agent stage: replace the **Scheduling** stub in
+`api/src/StudyHive.Api/Services/WorkflowOrchestrationService.cs` (`BuildSchedulingStub`). Its output
+contract is `{ slots[{ roomId, roomName, startsAt, endsAt, hourlyRate }], conflicts[] }` — keep that
+shape and the screens above keep working.
 
 ## S3 — Consumables & Stock
 
-View models: `web/src/types/consumables.ts` (web) / `mobile/lib/models/consumable.dart` (mobile).
+| Screen | Web file | Mobile file | Endpoint to build |
+|---|---|---|---|
+| W-19 Consumables | `web/src/pages/store/ConsumablesPage.tsx` | `mobile/lib/screens/consumables/browse_consumables_screen.dart` | `GET /api/consumables` |
+| W-20 Consumable detail + stock-in | `web/src/pages/store/ConsumableDetailPage.tsx` | `mobile/lib/screens/consumables/consumable_detail_screen.dart` | `GET /api/consumables/{id}`, `POST /api/consumables/{id}/stock-in` |
+| W-21 Low stock alerts | `web/src/pages/store/LowStockPage.tsx` | — staff only | `GET /api/consumables/low-stock` |
+| W-22 Stock reservations | `web/src/pages/store/ReservationsPage.tsx` | — staff only | `GET /api/stock-reservations?status=` |
+| W-23 Suppliers | `web/src/pages/store/SuppliersPage.tsx` | — staff only | `GET/POST/PUT /api/suppliers` |
+| W-24 Consumable usage report | `web/src/pages/reports/ConsumableUsagePage.tsx` | — staff only | `GET /api/reports/consumable-usage` |
+| Quantity picker | — | `mobile/lib/screens/consumables/select_consumables_screen.dart` | reads `GET /api/consumables` |
 
-| Screen (mockup name) | Web file | Mobile file | View model | Suggested endpoint |
-|---|---|---|---|---|
-| Consumables list | `pages/store/ConsumablesListPage.tsx` | `screens/consumables/browse_consumables_screen.dart` | `ConsumableListItem` | `GET /api/consumables` |
-| Consumable detail + history | `pages/store/ConsumableDetailPage.tsx` | `screens/consumables/consumable_detail_screen.dart` | `ConsumableDetail`, `StockTransactionItem` | `GET /api/consumables/{id}`, `GET /api/consumables/{id}/transactions` |
-| Add/Edit consumable form | `pages/store/ConsumableFormPage.tsx` | — (staff-only) | — | `POST /api/consumables`, `PUT /api/consumables/{id}` |
-| Stock-in form | `pages/store/StockInFormPage.tsx` | — (staff-only) | — | `POST /api/consumables/{id}/stock-in` |
-| Low-stock alerts | `pages/store/LowStockAlertsPage.tsx` | — (staff-only) | `ConsumableListItem[]` | `GET /api/consumables?lowStock=true` |
-| Stock reservations | `pages/store/StockReservationsPage.tsx` | — (staff-only) | `StockReservationItem` | `GET /api/stock-reservations?status=` |
-| Suppliers | `pages/store/SuppliersPage.tsx` | — (staff-only) | `SupplierItem` | `GET/POST /api/suppliers` |
-| Select consumables for booking | — (S1 owns booking requests; see note below) | `screens/consumables/select_consumables_screen.dart` | — | `GET /api/consumables` (reuse the list endpoint); replace the Debug-only picker records, which already round-trip through `BookingRequestsApi.create` |
+Web client you create: `web/src/api/consumables.ts` **(you create this)**.
+Mobile client you create: `mobile/lib/api/consumables_api.dart` **(you create this)**.
 
-Web routes: `/stock`, `/stock/:id`, `/stock/new`, `/stock/stock-in`, `/stock/low-stock`,
-`/stock/reservations`, `/stock/suppliers`.
+Web routes: `/consumables`, `/consumables/low-stock`, `/consumables/:id`, `/reservations`,
+`/suppliers`, `/reports/consumables`.
 
-**Note for S3:** S1's `CreateBookingRequestRequest.items` (`api/src/StudyHive.Api/Controllers/BookingRequests/BookingRequestContracts.cs`)
-and the equivalent Flutter `BookingRequestsApi.create` already accept a `List<{consumableId, quantity}>`
-— that contract is stable and won't need to change. The quantity picker is already wired into the
-three-step create flow; S3 replaces its Debug-only catalog with the real consumables list API.
+One thing to know: `select_consumables_screen.dart` is deliberately **not** wired into
+`create_request_screen.dart`. S1's create form ships with no consumable selector on purpose, because
+there is no real catalogue to select from yet. When your API exists, that screen becomes the
+quantity-picker step the create form links out to — and `booking_request_items` already accepts the
+result, validated by S1's `ValidateItemsOrProblemAsync`.
+
+Your agent stage: replace the **Resource** stub (`BuildResourceStub`). Contract:
+`{ items[{ consumableId, requested, available, sufficient, unitPrice, lineTotal }], totalCost, allAvailable }`.
 
 ## S4 — Costing, Validation, Approval & Audit
 
-View models: `web/src/types/approvals.ts` (web) / `mobile/lib/models/quotation.dart` (mobile).
-S4 also reuses S1's already-implemented `WorkflowExecution`/`WorkflowStepLog` shape — see
-`web/src/api/bookingRequests.ts`'s `WorkflowStatusResponse` — rather than inventing a parallel one.
+| Screen | Web file | Mobile file | Endpoint to build |
+|---|---|---|---|
+| W-03 Approval queue | `web/src/pages/approvals/ApprovalQueuePage.tsx` | — staff only | `GET /api/approvals?status=Pending` |
+| W-04 Review proposal | `web/src/pages/approvals/ReviewProposalPage.tsx` | — staff only | `POST /api/approvals/{id}/decision` |
+| W-05 Quotation detail | `web/src/pages/approvals/QuotationDetailPage.tsx` | `mobile/lib/screens/quotation/quotation_view_screen.dart` (M-08) | `GET /api/quotations/{id}` |
+| W-06 Workflow execution viewer | `web/src/pages/approvals/WorkflowExecutionPage.tsx` | — staff only | `GET /api/workflow-executions/{id}` |
+| W-07 Execution history | `web/src/pages/approvals/ExecutionHistoryPage.tsx` | — staff only | `GET /api/workflow-executions` |
+| W-08 Audit log | `web/src/pages/approvals/AuditLogPage.tsx` | — staff only | `GET /api/audit-logs` |
+| W-09 Reports hub | `web/src/pages/reports/ReportsPage.tsx` | — staff only | `GET /api/reports/bookings` |
+| Approval status | — | `mobile/lib/screens/quotation/approval_status_screen.dart` | reads the request status |
+| Booking history | — | `mobile/lib/screens/quotation/booking_history_screen.dart` | `GET /api/booking-requests?status=` |
 
-| Screen (mockup name) | Web file | Mobile file | View model | Suggested endpoint |
-|---|---|---|---|---|
-| Approval queue | `pages/admin/ApprovalQueuePage.tsx` | — (staff-only) | `ApprovalQueueItem` | `GET /api/quotations?status=Proposed` |
-| Approval form | `pages/admin/ApprovalFormPage.tsx` | `screens/quotation/approval_status_screen.dart` (read-only view for the student) | `ApprovalDecisionInput` | `POST /api/quotations/{id}/approval-decisions` |
-| Quotation detail | `pages/admin/QuotationDetailPage.tsx` | `screens/quotation/quotation_view_screen.dart` | `QuotationDetailView` | `GET /api/quotations/{id}` |
-| Workflow execution viewer | `pages/admin/WorkflowExecutionViewerPage.tsx` | — (S1's per-request timeline already covers the student view) | reuses `WorkflowStatusResponse` | `GET /api/workflow-executions/{id}` (standalone lookup; S1's `GET /api/booking-requests/{id}/status` already covers the per-request case) |
-| Execution history | `pages/admin/ExecutionHistoryPage.tsx` | — (staff-only) | `ExecutionHistoryItem` | `GET /api/workflow-executions?status=` |
-| Audit log viewer | `pages/admin/AuditLogViewerPage.tsx` | — (staff-only) | `AuditLogEntryView` | `GET /api/audit-log?action=&entityType=&userId=` |
-| Reports dashboard | `pages/admin/ReportsDashboardPage.tsx` | — (staff-only) | `ReportsSummary` | `GET /api/reports/summary` |
-| Booking history with costs | — (staff sees it via Execution history / Reports) | `screens/quotation/booking_history_screen.dart` | `BookingHistoryItem` | `GET /api/booking-requests?studentOwn=true&status=Completed` plus quotation totals |
+Web client you create: `web/src/api/approvals.ts` **(you create this)**.
 
-Web routes: `/admin`, `/admin/approvals/:id`, `/admin/quotations/:id`, `/admin/workflows/:id`,
-`/admin/executions`, `/admin/audit-log`, `/admin/reports`.
+Web routes: `/approvals`, `/approvals/:id`, `/quotations/:id`, `/workflows`, `/workflows/:id`,
+`/audit-log`, `/reports`.
 
-## Mobile navigation note
+Your agent stage: replace the **Validation** stub (`BuildValidationStub`). Contract:
+`{ valid, results[{ rule, passed, detail }], quotation{...}, failures[] }`. The plan is specific
+about what makes this an agent rather than a function: the agent chooses *which* checks apply to a
+given proposal and turns failures into a readable revision instruction; the checks themselves are
+arithmetic. Be ready to say that out loud in the viva.
 
-The reference-aligned four-tab bottom nav is Home/Rooms/Bookings/Profile. Create Request begins from
-Home; Rooms opens its browse/detail/schedule chain; Bookings opens request detail, quotation/history
-and approval status; Profile holds the remaining secondary links. QR check-in is reached from an
-eligible booking, not from a top-level tab.
+W-04's approval is the one that matters most — the plan requires a **single database transaction**
+that books the rooms and reserves the stock together, with the exclusion constraint and the stock
+CHECK as the last line of defence inside it.
+
+## Shared screens (not one owner's business component)
+
+| Screen | Web file | Note |
+|---|---|---|
+| W-01 Staff sign in | `web/src/pages/auth/LoginPage.tsx` | Real and working. Foundation. |
+| W-02 Dashboard | `web/src/pages/DashboardPage.tsx` | Its counts come from all four owners' read endpoints, so it goes live in pieces. |
+| W-25 Users & roles | `web/src/pages/admin/UsersPage.tsx` | Admin. Needs `GET /api/users`. |
+| W-26 Settings | `web/src/pages/admin/SettingsPage.tsx` | Admin. |
+
+## S1's screens — already real, do not edit
+
+These four web screens and the student mobile flows talk to the live API today. They are S1's
+component. If you need a change in one, raise it with S1 rather than editing it — see
+[`S1_Scope_And_Handoff.md`](S1_Scope_And_Handoff.md).
+
+- `web/src/pages/requests/RequestsPage.tsx` (W-10)
+- `web/src/pages/requests/RequestDetailPage.tsx` (W-11)
+- `web/src/pages/requests/StudentsPage.tsx` (W-12)
+- `web/src/pages/auth/LoginPage.tsx` (W-01)
+- Mobile: `login_screen.dart`, `register_screen.dart`, `home_screen.dart`,
+  `create_request_screen.dart`, `workflow_progress_screen.dart`, `track_screen.dart`,
+  `booking_detail_screen.dart`, `profile_screen.dart`
+
+## Rules that apply to every endpoint you build
+
+From the plan's shared conventions — these are not suggestions, and S1 already configured all of
+them, so you get them for free by not fighting them:
+
+- **Lists** take `?page=1&pageSize=20&sortBy=&sortDir=&search=` and return
+  `{ items, page, pageSize, totalItems, totalPages }`. Use `PagedResult<T>` and `PageQuery` from
+  `api/src/StudyHive.Api/Common/PagedResult.cs`. Default `pageSize` 20, max 100. **An unknown
+  `sortBy` is a 400, never a silent fallback.**
+- **Errors** are RFC 7807 ProblemDetails from the one global handler. Never hand-roll an error body.
+- **JSON** is camelCase with string enums; **Postgres** is snake_case. Both are configured in
+  `Program.cs`. Do not add per-controller serializer settings.
+- **Money** is `numeric(12,2)`. **Every instant** is `timestamptz`. **Every status column** is
+  `varchar(30)` with a CHECK constraint and `.HasConversion<string>()` in C#.
+- **Deletes are RESTRICT** by default. Rooms and consumables are deactivated, never deleted.
+
+Your tables already exist in `StudyHiveDbContext` with configurations in
+`api/src/StudyHive.Api/Data/Configurations/S2Configurations.cs`, `S3Configurations.cs` and
+`S4Configurations.cs`. You should not need a new initial migration — add your own migration only for
+changes you make to your own entities.
