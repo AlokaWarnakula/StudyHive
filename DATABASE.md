@@ -384,6 +384,100 @@ cannot order when inserting. To find the current workflow, query `workflow_execu
 
 ---
 
+## Moving to Neon instead of Docker
+
+Yes — migrations, export and import all work against Neon. The plan already names Neon as the hosted
+database (§13), and nothing in the schema is Docker-specific.
+
+### 1. Put the connection string in `.env`
+
+Copy [`.env.example`](.env.example) to `.env` and fill in the Neon values. `.env` is gitignored;
+`.env.example` is the tracked template.
+
+Neon shows a URL, but Npgsql wants key=value form — translate it:
+
+```
+Neon shows:   postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require
+Npgsql wants: Host=HOST;Database=DBNAME;Username=USER;Password=PASSWORD;SSL Mode=Require;Trust Server Certificate=true
+```
+
+`SSL Mode=Require` is not optional — Neon refuses plaintext connections.
+
+### 2. Create the schema on Neon
+
+The migration builds all 23 tables from empty. Point the connection string at Neon and run it:
+
+```bash
+set -a && source .env && set +a
+```
+
+```bash
+dotnet ef database update --project api/src/StudyHive.Api --startup-project api/src/StudyHive.Api
+```
+
+**One thing to check first.** The migration creates the `citext` and `btree_gist` extensions. Neon
+supports both, but they must be creatable by your role — if `CREATE EXTENSION` is refused, create
+them once in the Neon SQL editor as the owner:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+```
+
+`btree_gist` is not optional: without it the `no_double_booking` exclusion constraint cannot be
+created, and that constraint is what makes overlapping bookings impossible.
+
+### 3. Or copy your existing local data across
+
+Schema and data together:
+
+```bash
+docker exec studyhive-db pg_dump -U studyhive -d studyhive --no-owner --no-privileges > studyhive.sql
+```
+
+```bash
+psql "postgresql://USER:PASSWORD@HOST/DBNAME?sslmode=require" -f studyhive.sql
+```
+
+`--no-owner --no-privileges` matters: the dump would otherwise reference the local `studyhive` role,
+which does not exist on Neon, and every `ALTER ... OWNER TO` would fail.
+
+Schema only (then let the app seed, or start clean):
+
+```bash
+docker exec studyhive-db pg_dump -U studyhive -d studyhive --schema-only --no-owner --no-privileges > schema.sql
+```
+
+Data only, if the schema is already migrated:
+
+```bash
+docker exec studyhive-db pg_dump -U studyhive -d studyhive --data-only --no-owner > data.sql
+```
+
+### 4. Do not carry the dev accounts to a real environment
+
+`DevDataSeeder` only runs when the environment is Development, so a production API will not create
+them. But if you copy a full dump from your local database, the dev users come with it — including
+the password published in this repository. Either restore schema-only, or delete them afterwards:
+
+```sql
+DELETE FROM users WHERE email LIKE '%@studyhive.dev';
+```
+
+Their booking requests and workflows cascade or restrict accordingly; check what remains before
+deleting on anything you care about.
+
+### 5. What changes in the app
+
+Nothing in the code. `Program.cs` reads `ConnectionStrings:Default` and `ConnectionStrings__Default`
+from the environment overrides it, so no committed file needs editing. Outside Development the API
+already fails startup if the connection string, JWT signing key, agent key or `AllowedHosts` are
+missing — so a half-configured deployment stops rather than silently falling back to development
+values.
+
+Keep `docker-compose.yml` for local work. Neon and Docker are not exclusive: developers can stay on
+the container while deployed environments use Neon.
+
 ## Checking the schema yourself
 
 ```bash
