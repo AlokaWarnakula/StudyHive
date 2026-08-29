@@ -185,8 +185,10 @@ public class StudentProfilesControllerTests(WebApplicationFactory<Program> facto
         body.Reasons.Should().BeEmpty();
     }
 
+    /// <summary>DOCS Master Plan draws the line at 3: "hold fewer than 3 penalty points". One or two
+    /// points leave a student eligible, which is why this asserts on 3 rather than on any point at all.</summary>
     [Fact]
-    public async Task Penalty_Points_Make_A_Student_Ineligible()
+    public async Task Three_Penalty_Points_Make_A_Student_Ineligible()
     {
         var client = factory.CreateClient();
         var (owner, _, ownerToken) = await TestSupport.CreateAndLoginStudentAsync(client);
@@ -201,7 +203,7 @@ public class StudentProfilesControllerTests(WebApplicationFactory<Program> facto
             department = profile.Department,
             yearOfStudy = profile.YearOfStudy,
             maxBookingsPerWeek = profile.MaxBookingsPerWeek,
-            penaltyPoints = 1,
+            penaltyPoints = 3,
             suspendedUntil = (DateOnly?)null,
             isActive = true,
         });
@@ -212,6 +214,37 @@ public class StudentProfilesControllerTests(WebApplicationFactory<Program> facto
         var body = await response.Content.ReadFromJsonAsync<EligibilityResponseShape>(TestSupport.JsonOptions);
         body!.Eligible.Should().BeFalse();
         body.Reasons.Should().Contain(r => r.Contains("penalty", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The boundary itself: two points is under the plan's limit, so eligibility must still
+    /// come back true with no penalty reason attached.</summary>
+    [Fact]
+    public async Task Two_Penalty_Points_Leave_A_Student_Eligible()
+    {
+        var client = factory.CreateClient();
+        var (owner, _, ownerToken) = await TestSupport.CreateAndLoginStudentAsync(client);
+        _createdUserIds.Add(owner.Id);
+        var profile = await TestSupport.CreateStudentProfileAsync(client, ownerToken);
+
+        var (adminId, _, adminToken) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Admin);
+        _createdUserIds.Add(adminId);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", adminToken);
+        await client.PutAsJsonAsync($"/api/student-profiles/{profile.Id}", new
+        {
+            department = profile.Department,
+            yearOfStudy = profile.YearOfStudy,
+            maxBookingsPerWeek = profile.MaxBookingsPerWeek,
+            penaltyPoints = 2,
+            suspendedUntil = (DateOnly?)null,
+            isActive = true,
+        });
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", ownerToken);
+        var response = await client.GetAsync($"/api/student-profiles/{profile.Id}/eligibility");
+
+        var body = await response.Content.ReadFromJsonAsync<EligibilityResponseShape>(TestSupport.JsonOptions);
+        body!.Eligible.Should().BeTrue();
+        body.Reasons.Should().BeEmpty();
     }
 
     [Fact]

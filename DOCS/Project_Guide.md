@@ -48,7 +48,7 @@ S1 owns the entire lifecycle of a booking request:
    the account. The separate profile endpoint remains available for older clients.
 2. They fill in a **booking request**: what it's for, group size, preferred dates/times, budget.
 3. They hit **submit**. This is where the AI comes in: the system checks they're eligible (active
-   account, not suspended, no penalty points, haven't hit their weekly booking limit), then hands the
+   account, not suspended, fewer than 3 penalty points, haven't hit their weekly booking limit), then hands the
    request to the **Planner Agent** — a small AI service that builds a step-by-step plan for who needs
    to do what next (find a room, check supplies, calculate the final cost).
 4. The request lands in front of a librarian as **Pending Approval**, with the full plan visible.

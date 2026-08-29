@@ -160,7 +160,8 @@ the full ownership table and handoff gates.
 
 - **API**: `POST/GET /api/student-profiles` (+ `/me`, `/{id}`, `/{id}/eligibility`, admin `PUT`);
   `POST/GET/PUT/DELETE /api/booking-requests` (+ `/{id}/submit`, `/{id}/status`). Eligibility (active,
-  not suspended, no penalty points, weekly quota) is centralized in `Services/BookingEligibilityService.cs`.
+  not suspended, fewer than 3 penalty points, within the weekly quota) is centralized in
+  `Services/BookingEligibilityService.cs`. The weekly window is the Asia/Colombo calendar week, per DOCS.
   Cancel is a status change (`Cancelled`), never a physical delete.
 - **Workflow**: submit enqueues onto an in-process `Channel<Guid>` (`Services/WorkflowQueue.cs`) read
   by `WorkflowBackgroundService`, matching DOCS §11's "no Redis, no Hangfire" background-job design.

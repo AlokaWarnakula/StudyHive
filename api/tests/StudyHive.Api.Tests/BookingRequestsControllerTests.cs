@@ -205,10 +205,10 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         second.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    [Fact]
-    public async Task Submit_Fails_With_422_When_Student_Has_Penalty_Points()
+    /// <summary>Sets the student's penalty points via the Admin-only profile endpoint, then submits
+    /// their draft as themselves. Returns the submit response so the caller can assert on it.</summary>
+    private async Task<HttpResponseMessage> SubmitWithPenaltyPointsAsync(HttpClient client, int penaltyPoints)
     {
-        var client = factory.CreateClient();
         var (_, studentToken, profileId) = await CreateEligibleStudentAsync(client);
         var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
         var createdBody = await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions);
@@ -221,7 +221,49 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
             department = "Computing",
             yearOfStudy = 2,
             maxBookingsPerWeek = 3,
-            penaltyPoints = 1,
+            penaltyPoints,
+            suspendedUntil = (DateOnly?)null,
+            isActive = true,
+        });
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", studentToken);
+        return await client.PostAsync($"/api/booking-requests/{createdBody!.Id}/submit", null);
+    }
+
+    /// <summary>DOCS Master Plan: eligible means "fewer than 3 penalty points", so 3 is the first
+    /// value that blocks a submission.</summary>
+    [Fact]
+    public async Task Submit_Fails_With_422_At_Three_Penalty_Points()
+    {
+        var client = factory.CreateClient();
+
+        var response = await SubmitWithPenaltyPointsAsync(client, penaltyPoints: 3);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
+    /// <summary>The boundary the plan actually draws: 2 points is still eligible. This is the case
+    /// the old "any penalty point blocks you" rule got wrong.</summary>
+    [Fact]
+    public async Task Submit_Is_Allowed_At_Two_Penalty_Points()
+    {
+        var fake = new FakePlannerClient();
+        await using var localFactory = CreateFactoryWithFakePlanner(fake);
+        var client = localFactory.CreateClient();
+
+        var (_, studentToken, profileId) = await CreateEligibleStudentAsync(client);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var createdBody = await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions);
+
+        var (adminId, _, adminToken) = await TestSupport.CreateAndLoginStaffAsync(localFactory, client, UserRole.Admin);
+        _createdUserIds.Add(adminId);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", adminToken);
+        await client.PutAsJsonAsync($"/api/student-profiles/{profileId}", new
+        {
+            department = "Computing",
+            yearOfStudy = 2,
+            maxBookingsPerWeek = 3,
+            penaltyPoints = 2,
             suspendedUntil = (DateOnly?)null,
             isActive = true,
         });
@@ -229,7 +271,7 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         client.DefaultRequestHeaders.Authorization = new("Bearer", studentToken);
         var response = await client.PostAsync($"/api/booking-requests/{createdBody!.Id}/submit", null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
     }
 
     [Fact]
