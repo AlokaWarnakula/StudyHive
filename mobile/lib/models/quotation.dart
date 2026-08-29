@@ -1,5 +1,10 @@
-/// S4 (Costing, Validation, Approval & Audit) view models — mirrors web/src/types/approvals.ts and
-/// the locked schema (api/src/StudyHive.Api/Data/Entities/S4/*.cs). No API client exists yet.
+/// S4 (Costing, Validation, Approval & Audit) view models — the mobile half of the contract in
+/// web/src/api/approvals.ts, over the locked schema
+/// (api/src/StudyHive.Api/Data/Entities/S4/*.cs).
+///
+/// Paired with lib/api/quotations_api.dart and lib/state/quotations_provider.dart, which exist as
+/// scaffolds: the calls are written but the endpoints behind them return 501 until S4 implements
+/// api/src/StudyHive.Api/Controllers/Approvals/.
 class QuotationLineItemView {
   final String itemName;
   final double quantity;

@@ -1,5 +1,10 @@
-/// S3 (Consumables & Stock) view models — mirrors web/src/types/consumables.ts and the locked
-/// schema (api/src/StudyHive.Api/Data/Entities/S3/*.cs). No API client exists for these yet.
+/// S3 (Consumables & Stock) view models — the mobile half of the contract in
+/// web/src/api/consumables.ts, over the locked schema
+/// (api/src/StudyHive.Api/Data/Entities/S3/*.cs).
+///
+/// Paired with lib/api/consumables_api.dart and lib/state/consumables_provider.dart, which exist
+/// as scaffolds: the calls are written but the endpoints behind them return 501 until S3
+/// implements api/src/StudyHive.Api/Controllers/Store/.
 class ConsumableListItem {
   final String id;
   final String name;

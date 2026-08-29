@@ -1,5 +1,9 @@
-/// S2 (Rooms & Availability) view models — mirrors web/src/types/rooms.ts and the locked schema
-/// (api/src/StudyHive.Api/Data/Entities/S2/*.cs). No API client exists for these yet.
+/// S2 (Rooms & Availability) view models — the mobile half of the contract in
+/// web/src/api/rooms.ts, over the locked schema (api/src/StudyHive.Api/Data/Entities/S2/*.cs).
+///
+/// Paired with lib/api/rooms_api.dart and lib/state/rooms_provider.dart, which exist as scaffolds:
+/// the calls are written but the endpoints behind them return 501 until S2 implements
+/// api/src/StudyHive.Api/Controllers/Rooms/.
 class RoomListItem {
   final String id;
   final String name;
