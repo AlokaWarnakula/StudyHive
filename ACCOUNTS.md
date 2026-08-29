@@ -34,9 +34,22 @@ That message is the feature working. Students use the Flutter app; the web app i
 store officers and admins. Use **`librarian@studyhive.dev`** for most of what you want to look at —
 it owns the S1 screens that talk to the real API.
 
+## The two URLs
+
+| App | URL | Sign in as |
+|---|---|---|
+| **Web** — staff dashboard | <http://localhost:5173> | `librarian@studyhive.dev` (or storeofficer / admin) |
+| **Mobile** — student app | <http://localhost:8090> | `student@studyhive.dev` |
+
+Each app rejects the other's accounts on purpose. Staff cannot sign in to the mobile app, students
+cannot sign in to the web dashboard, and both say so clearly rather than failing silently.
+
+The mobile app is the Flutter build running in a browser. Narrow the window to a phone width, or use
+your browser's device toolbar (F12, then the phone icon), or it stretches across the full page.
+
 ## Start everything
 
-Three terminals from the repo root.
+Four terminals from the repo root.
 
 **1. Database**
 
@@ -64,11 +77,25 @@ npm run dev --prefix web
 
 Then open <http://localhost:5173> and sign in as the librarian.
 
-For the mobile app instead:
+**4. Mobile app** — build once, then serve it
 
 ```bash
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:5299
+flutter build web --dart-define=API_BASE_URL=http://localhost:5299
 ```
+
+```bash
+python -m http.server 8090 --directory mobile/build/web
+```
+
+Then open <http://localhost:8090> and sign in as the student.
+
+The `--dart-define` matters. Without it the app defaults to `http://10.0.2.2:5299`, which is the
+Android emulator's alias for the host machine and is unreachable from a desktop browser — sign-in
+would fail with a network error that looks like the API is down when it is not.
+
+`http://localhost:8090` is in `Cors:AllowedOrigins` in `appsettings.Development.json` alongside the
+web app's `5173`. If you serve the mobile build on a different port, add that port there or the
+browser blocks every API call.
 
 ## What you will actually see
 
