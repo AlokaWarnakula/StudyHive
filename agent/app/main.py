@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, FastAPI
 
 from app.agents.planner import plan as run_planner
-from app.schemas import PlannerRequest, PlannerResponse
+from app.agents.scheduling import schedule as run_scheduling
+from app.schemas import PlannerRequest, PlannerResponse, SchedulingRequest, SchedulingResponse
 from app.security import require_internal_api_key
 from app.settings import settings
 
@@ -42,6 +43,12 @@ def workflow_limits() -> dict[str, int]:
 def planner_plan(request: PlannerRequest) -> PlannerResponse:
     """S1's Planner Agent — see app/agents/planner.py for the tool sequence and DOCS §11 for the contract."""
     return run_planner(request)
+
+
+@internal_router.post("/scheduling/propose", response_model=SchedulingResponse)
+def scheduling_propose(request: SchedulingRequest) -> SchedulingResponse:
+    """S2's Scheduling Agent — filters rooms, checks conflicts and proposes slots."""
+    return run_scheduling(request)
 
 
 app.include_router(internal_router)
