@@ -88,7 +88,7 @@ void main() {
     testWidgets(
         'Browse rooms -> Room detail -> Room schedule is a real, navigable chain',
         (tester) async {
-      await _pump(tester, const BrowseRoomsScreen());
+      await _pump(tester, const BrowseRoomsScreen(previewEnabled: true));
       expect(find.text('Rooms'), findsOneWidget);
       expect(find.text('B-204'), findsOneWidget);
 

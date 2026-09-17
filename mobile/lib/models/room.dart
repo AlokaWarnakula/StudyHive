@@ -35,10 +35,18 @@ class RoomEquipmentItem {
   final String name;
   final int quantity;
 
-  const RoomEquipmentItem(
-      {required this.equipmentTypeId,
-      required this.name,
-      required this.quantity});
+  const RoomEquipmentItem({
+    required this.equipmentTypeId,
+    required this.name,
+    required this.quantity,
+  });
+}
+
+class RoomEquipmentType {
+  final String id;
+  final String name;
+
+  const RoomEquipmentType({required this.id, required this.name});
 }
 
 class RoomDetail extends RoomListItem {
@@ -62,11 +70,32 @@ class RoomScheduleSlot {
   final String roomId;
   final String startsAt;
   final String endsAt;
+  final String kind;
+
+  const RoomScheduleSlot({
+    required this.roomId,
+    required this.startsAt,
+    required this.endsAt,
+    required this.kind,
+  });
+}
+
+class RoomCheckInResult {
+  final String bookingId;
+  final String roomId;
+  final String roomName;
+  final DateTime startsAt;
+  final DateTime endsAt;
+  final DateTime checkedInAt;
   final String status;
 
-  const RoomScheduleSlot(
-      {required this.roomId,
-      required this.startsAt,
-      required this.endsAt,
-      required this.status});
+  const RoomCheckInResult({
+    required this.bookingId,
+    required this.roomId,
+    required this.roomName,
+    required this.startsAt,
+    required this.endsAt,
+    required this.checkedInAt,
+    required this.status,
+  });
 }
