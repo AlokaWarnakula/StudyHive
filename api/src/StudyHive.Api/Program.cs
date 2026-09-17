@@ -39,7 +39,17 @@ builder.Services.AddSwaggerGen(c =>
     c.AddSecurityDefinition("Bearer", bearerScheme);
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
-        { bearerScheme, Array.Empty<string>() }
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
     });
 });
 
@@ -186,7 +196,17 @@ builder.Services.AddHttpClient<IPlannerClient, PlannerClient>(client =>
     }
 });
 
+builder.Services.AddHttpClient<ISchedulingAgentClient, SchedulingAgentClient>(client =>
+{
+    client.BaseAddress = new Uri(agentOptions.BaseUrl);
+    if (!string.IsNullOrWhiteSpace(agentOptions.InternalApiKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", agentOptions.InternalApiKey);
+    }
+});
+
 builder.Services.AddScoped<IBookingEligibilityService, BookingEligibilityService>();
+builder.Services.AddScoped<IRoomBookingService, RoomBookingService>();
 builder.Services.AddScoped<IWorkflowOrchestrationService, WorkflowOrchestrationService>();
 builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
