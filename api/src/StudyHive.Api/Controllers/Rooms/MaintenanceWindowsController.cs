@@ -1,47 +1,173 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using StudyHive.Api.Common;
+using StudyHive.Api.Data;
+using StudyHive.Api.Data.Entities;
 
 namespace StudyHive.Api.Controllers.Rooms;
 
 /// <summary>
-/// S2: maintenance windows. A saved window removes the room from availability search for that period.
-///
-/// SCAFFOLD ONLY - owned by S2 (Rooms and Availability), not implemented yet. Every action below returns 501 so the
-/// route, its role gate and its shape are pinned by the plan's DOCS section 11 API table before
-/// anyone writes a line of logic. Nothing here fabricates data: an unimplemented endpoint must
-/// never answer as though it worked.
-///
-/// To implement one: inject StudyHiveDbContext, delete the NotImplemented() call, and return the
-/// real result. Keep the route and the [Authorize] attribute exactly as they are - the web and
-/// mobile clients are already written against them.
-///
-/// House rules that already apply here (see DOCS/S2_S3_S4_UI_Interface_Map.md):
-///   - Lists take [FromQuery] PageQuery and return PagedResult&lt;T&gt;. Unknown sortBy is a 400.
-///   - Errors are RFC 7807 from the global handler. Never hand-roll an error body.
-///   - Deletes are deactivations, not physical deletes.
+/// S2 maintenance windows. Availability queries use these persisted periods to
+/// exclude rooms that cannot be booked.
 /// </summary>
 [ApiController]
 [Route("api/maintenance-windows")]
 [Authorize]
-public sealed class MaintenanceWindowsController : ControllerBase
+public sealed class MaintenanceWindowsController(StudyHiveDbContext db) : ControllerBase
 {
-    /// <summary>The single place this scaffold refuses. Replace the call, not this helper.</summary>
-    private ObjectResult NotImplemented(string what) => Problem(
-        type: "https://studyhive.dev/errors/not-implemented",
-        title: "Not implemented yet",
-        statusCode: StatusCodes.Status501NotImplemented,
-        detail: $"{what} is owned by S2 (Rooms and Availability) and has not been built yet.");
-
-    /// <summary>Create a maintenance window. W-17 warns when approved bookings fall inside it.</summary>
+    /// <summary>Create a maintenance window and report how many confirmed bookings it affects.</summary>
     [HttpPost]
-    [Authorize(Roles = $"{Roles.Librarian}")]
-    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
-    public IActionResult Create() => NotImplemented("Creating a maintenance window");
+    [Authorize(Roles = Roles.Librarian)]
+    [ProducesResponseType(typeof(MaintenanceWindowResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Create(
+        [FromBody] CreateMaintenanceWindowRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            ModelState.AddModelError(nameof(request.Reason), "Reason is required.");
+        }
+
+        if (request.EndsAt <= request.StartsAt)
+        {
+            ModelState.AddModelError(nameof(request.EndsAt), "End time must be later than start time.");
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        var room = await db.StudyRooms
+            .AsNoTracking()
+            .SingleOrDefaultAsync(r => r.Id == request.RoomId, ct);
+
+        if (room is null)
+        {
+            return NotFound();
+        }
+
+        var affectedBookings = await db.RoomBookings.CountAsync(b =>
+            b.RoomId == request.RoomId &&
+            b.Status == RoomBookingStatus.Confirmed &&
+            b.StartsAt < request.EndsAt &&
+            b.EndsAt > request.StartsAt,
+            ct);
+
+        var maintenanceWindow = new MaintenanceWindow
+        {
+            Id = Guid.NewGuid(),
+            RoomId = request.RoomId,
+            StartsAt = request.StartsAt,
+            EndsAt = request.EndsAt,
+            Reason = request.Reason.Trim(),
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        db.MaintenanceWindows.Add(maintenanceWindow);
+        await db.SaveChangesAsync(ct);
+
+        return StatusCode(StatusCodes.Status201Created, new MaintenanceWindowResponse(
+            maintenanceWindow.Id,
+            maintenanceWindow.RoomId,
+            room.Name,
+            maintenanceWindow.StartsAt,
+            maintenanceWindow.EndsAt,
+            maintenanceWindow.Reason,
+            affectedBookings,
+            maintenanceWindow.CreatedAt));
+    }
 
     /// <summary>List maintenance windows. Backs W-17.</summary>
     [HttpGet]
-    [Authorize(Roles = $"{Roles.Librarian}")]
-    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
-    public IActionResult List([FromQuery] PageQuery query) => NotImplemented("Listing maintenance windows");
+    [Authorize(Roles = Roles.Librarian)]
+    [ProducesResponseType(typeof(PagedResult<MaintenanceWindowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> List([FromQuery] PageQuery query, CancellationToken ct)
+    {
+        IQueryable<MaintenanceWindow> windows = db.MaintenanceWindows.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var pattern = $"%{query.Search.Trim()}%";
+            windows = windows.Where(w =>
+                EF.Functions.ILike(w.Reason, pattern) ||
+                EF.Functions.ILike(w.Room.Name, pattern));
+        }
+
+        var direction = query.SortDir.ToLowerInvariant();
+        if (direction is not ("asc" or "desc"))
+        {
+            ModelState.AddModelError(nameof(query.SortDir), "sortDir must be either 'asc' or 'desc'.");
+            return ValidationProblem(ModelState);
+        }
+
+        var descending = direction == "desc";
+        windows = query.SortBy?.ToLowerInvariant() switch
+        {
+            null or "" or "createdat" => descending
+                ? windows.OrderByDescending(w => w.CreatedAt)
+                : windows.OrderBy(w => w.CreatedAt),
+            "startsat" => descending
+                ? windows.OrderByDescending(w => w.StartsAt)
+                : windows.OrderBy(w => w.StartsAt),
+            "endsat" => descending
+                ? windows.OrderByDescending(w => w.EndsAt)
+                : windows.OrderBy(w => w.EndsAt),
+            "room" => descending
+                ? windows.OrderByDescending(w => w.Room.Name)
+                : windows.OrderBy(w => w.Room.Name),
+            "reason" => descending
+                ? windows.OrderByDescending(w => w.Reason)
+                : windows.OrderBy(w => w.Reason),
+            _ => null!,
+        };
+
+        if (windows is null)
+        {
+            ModelState.AddModelError(nameof(query.SortBy), $"Unknown sortBy value '{query.SortBy}'.");
+            return ValidationProblem(ModelState);
+        }
+
+        var totalItems = await windows.CountAsync(ct);
+        var items = await windows
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .Select(w => new MaintenanceWindowResponse(
+                w.Id,
+                w.RoomId,
+                w.Room.Name,
+                w.StartsAt,
+                w.EndsAt,
+                w.Reason,
+                db.RoomBookings.Count(b =>
+                    b.RoomId == w.RoomId &&
+                    b.Status == RoomBookingStatus.Confirmed &&
+                    b.StartsAt < w.EndsAt &&
+                    b.EndsAt > w.StartsAt),
+                w.CreatedAt))
+            .ToListAsync(ct);
+
+        return Ok(PagedResult<MaintenanceWindowResponse>.Create(
+            items, query.Page, query.PageSize, totalItems));
+    }
 }
+
+public sealed record CreateMaintenanceWindowRequest(
+    Guid RoomId,
+    DateTimeOffset StartsAt,
+    DateTimeOffset EndsAt,
+    string Reason);
+
+public sealed record MaintenanceWindowResponse(
+    Guid Id,
+    Guid RoomId,
+    string RoomName,
+    DateTimeOffset StartsAt,
+    DateTimeOffset EndsAt,
+    string Reason,
+    int AffectedBookings,
+    DateTimeOffset CreatedAt);

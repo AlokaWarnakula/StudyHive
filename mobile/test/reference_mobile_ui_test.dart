@@ -92,7 +92,8 @@ void main() {
   testWidgets('M-09 browse rooms lists the reference rooms with their tags',
       (tester) async {
     useReferenceFrame(tester);
-    await tester.pumpWidget(host(const BrowseRoomsScreen()));
+    await tester
+        .pumpWidget(host(const BrowseRoomsScreen(previewEnabled: true)));
 
     expect(find.text('B-204'), findsOneWidget);
     expect(find.text('B-118'), findsOneWidget);
@@ -126,7 +127,7 @@ void main() {
 
   testWidgets('M-14 check-in leads to the M-15 success state', (tester) async {
     useReferenceFrame(tester);
-    await tester.pumpWidget(host(const QrCheckInScreen()));
+    await tester.pumpWidget(host(const QrCheckInScreen(previewEnabled: true)));
     await tester.pumpAndSettle();
 
     expect(find.text('Point at the sticker on the door'), findsOneWidget);

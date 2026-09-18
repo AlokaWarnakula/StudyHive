@@ -11,11 +11,9 @@ using StudyHive.Api.Data.Entities;
 namespace StudyHive.Api.Services;
 
 /// <summary>
-/// Runs one booking request's agentic workflow end to end: calls the Planner Agent, then persists
-/// contract-shaped Scheduling/Resource/Validation stub steps (DOCS §04: "Use contract-correct fake
-/// Scheduling/Resource/Validation outputs until later owners replace them") and moves the request to
-/// PendingApproval. Every failure path (ineligible, planner unreachable, workflow timeout) ends in a
-/// terminal Failed/Rejected status with an error code — never a half-updated request.
+/// Runs one booking request's agentic workflow end to end: calls the Planner and Scheduling Agents,
+/// then persists contract-shaped Resource/Validation stub steps until their owners replace them.
+/// Every expected failure path ends in a terminal Failed/Rejected status with an error code.
 /// </summary>
 public interface IWorkflowOrchestrationService
 {
@@ -27,6 +25,7 @@ public sealed class WorkflowOrchestrationService(
     StudyHiveDbContext db,
     IBookingEligibilityService eligibilityService,
     IPlannerClient plannerClient,
+    ISchedulingAgentClient schedulingAgentClient,
     IOptions<WorkflowLimitsOptions> limitsOptions) : IWorkflowOrchestrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -65,6 +64,7 @@ public sealed class WorkflowOrchestrationService(
 
         var execution = await db.WorkflowExecutions
             .Include(w => w.BookingRequest).ThenInclude(b => b.Items)
+            .Include(w => w.BookingRequest).ThenInclude(b => b.RequiredEquipment)
             .SingleOrDefaultAsync(w => w.Id == workflowExecutionId, ct);
         if (execution is null) return;
 
@@ -135,14 +135,44 @@ public sealed class WorkflowOrchestrationService(
                 return;
             }
 
-            // Steps 2-4: contract-shaped Scheduling/Resource/Validation stubs — S2/S3/S4 replace
-            // these in later relay handoffs (DOCS §04). Deterministic from the request's own data,
-            // and explicitly flagged "stub": true so nobody mistakes it for a real proposal.
-            var schedulingOutput = BuildSchedulingStub(bookingRequest);
-            await LogStepAsync(execution.Id, 2, "Scheduling", "propose_slots",
-                input: new { bookingRequest.GroupSize, bookingRequest.PreferredDateFrom, bookingRequest.PreferredDateTo },
-                output: schedulingOutput, StepValidationResult.Pass, null, durationMs: 0, ct);
+            // Step 2 is S2's real Scheduling Agent. StudyHive.Api supplies the trusted room,
+            // equipment, booking and maintenance snapshot; the agent never reads the database.
+            var schedulingRequest = await BuildSchedulingRequestAsync(bookingRequest, ct);
+            var (schedulingOutput, schedulingDurationMs, schedulingError) =
+                await CallSchedulingWithRetriesAsync(schedulingRequest, limits, ct);
 
+            var schedulingSucceeded = schedulingOutput is not null &&
+                schedulingOutput.Slots.Count >= bookingRequest.SessionsRequired;
+            var noAvailabilityError = schedulingOutput is not null && !schedulingSucceeded
+                ? string.Join(" ", schedulingOutput.Conflicts)
+                : null;
+
+            await LogStepAsync(execution.Id, 2, "Scheduling", "propose_slots",
+                input: schedulingRequest,
+                output: schedulingOutput is null ? new { error = schedulingError } : schedulingOutput,
+                validationResult: schedulingSucceeded ? StepValidationResult.Pass : StepValidationResult.Fail,
+                errorMessage: schedulingError ?? noAvailabilityError,
+                durationMs: schedulingDurationMs,
+                ct);
+
+            if (schedulingOutput is null)
+            {
+                await FailAsync(execution, bookingRequest, "STEP_RETRY_EXHAUSTED",
+                    schedulingError ?? "Scheduling Agent did not respond after retries.", ct);
+                return;
+            }
+
+            if (!schedulingSucceeded)
+            {
+                await FailAsync(execution, bookingRequest, "NO_ROOM_AVAILABLE",
+                    string.IsNullOrWhiteSpace(noAvailabilityError)
+                        ? "The Scheduling Agent could not find all requested sessions."
+                        : noAvailabilityError,
+                    ct);
+                return;
+            }
+
+            // Steps 3-4 remain the S3/S4 contract-shaped stubs until their owners replace them.
             var resourceOutput = BuildResourceStub(bookingRequest);
             await LogStepAsync(execution.Id, 3, "Resource", "prepare_reservation",
                 input: new { items = plannerRequest.RequestedItems },
@@ -204,6 +234,177 @@ public sealed class WorkflowOrchestrationService(
         return (null, (int)stopwatch.ElapsedMilliseconds, lastError);
     }
 
+    private async Task<SchedulingRequest> BuildSchedulingRequestAsync(
+        BookingRequest bookingRequest,
+        CancellationToken ct)
+    {
+        var colomboOffset = TimeSpan.FromMinutes(330);
+        var rangeStart = new DateTimeOffset(
+            bookingRequest.PreferredDateFrom.ToDateTime(TimeOnly.MinValue),
+            colomboOffset).ToUniversalTime();
+        var rangeEnd = new DateTimeOffset(
+            bookingRequest.PreferredDateTo.ToDateTime(TimeOnly.MaxValue),
+            colomboOffset).ToUniversalTime();
+
+        var rooms = await db.StudyRooms
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(r => r.Equipment.Where(e => e.Quantity > 0))
+            .Include(r => r.Bookings.Where(b =>
+                b.Status == RoomBookingStatus.Confirmed &&
+                b.StartsAt < rangeEnd &&
+                b.EndsAt > rangeStart))
+            .Include(r => r.MaintenanceWindows.Where(w =>
+                w.StartsAt < rangeEnd &&
+                w.EndsAt > rangeStart))
+            .ToListAsync(ct);
+
+        return new SchedulingRequest
+        {
+            GroupSize = bookingRequest.GroupSize,
+            PreferredDateFrom = bookingRequest.PreferredDateFrom,
+            PreferredDateTo = bookingRequest.PreferredDateTo,
+            PreferredTimeFrom = bookingRequest.PreferredTimeFrom,
+            PreferredTimeTo = bookingRequest.PreferredTimeTo,
+            SessionsRequired = bookingRequest.SessionsRequired,
+            SessionDurationMinutes = bookingRequest.SessionDurationMinutes,
+            RequiredEquipmentTypeIds = bookingRequest.RequiredEquipment
+                .Select(e => e.EquipmentTypeId)
+                .Distinct()
+                .ToList(),
+            Rooms = rooms.Select(room => new SchedulingRoom
+            {
+                RoomId = room.Id,
+                RoomName = room.Name,
+                Capacity = room.Capacity,
+                HourlyRate = room.HourlyRate,
+                IsActive = room.IsActive,
+                EquipmentTypeIds = room.Equipment
+                    .Select(e => e.EquipmentTypeId)
+                    .Distinct()
+                    .ToList(),
+                Bookings = room.Bookings.Select(b => new SchedulingTimeBlock
+                {
+                    StartsAt = b.StartsAt,
+                    EndsAt = b.EndsAt,
+                }).ToList(),
+                MaintenanceWindows = room.MaintenanceWindows.Select(w => new SchedulingTimeBlock
+                {
+                    StartsAt = w.StartsAt,
+                    EndsAt = w.EndsAt,
+                }).ToList(),
+            }).ToList(),
+        };
+    }
+
+    private async Task<(SchedulingResponse? Response, int DurationMs, string? Error)>
+        CallSchedulingWithRetriesAsync(
+            SchedulingRequest request,
+            WorkflowLimitsOptions limits,
+            CancellationToken ct)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string? lastError = null;
+        var maxAttempts = limits.MaxRetriesPerStep + 1;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            attemptCts.CancelAfter(TimeSpan.FromSeconds(limits.ToolCallTimeoutSeconds));
+            try
+            {
+                var response = await schedulingAgentClient.ProposeAsync(request, attemptCts.Token);
+                var validationErrors = ValidateSchedulingResponse(request, response);
+                if (validationErrors.Count == 0)
+                {
+                    stopwatch.Stop();
+                    return (response, (int)stopwatch.ElapsedMilliseconds, null);
+                }
+
+                lastError = $"Scheduling validation failed: {string.Join(" ", validationErrors)} " +
+                    $"(attempt {attempt}/{maxAttempts}).";
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                lastError = $"Scheduling call timed out after {limits.ToolCallTimeoutSeconds}s " +
+                    $"(attempt {attempt}/{maxAttempts}).";
+            }
+            catch (HttpRequestException ex)
+            {
+                lastError = $"Scheduling call failed: {ex.Message} (attempt {attempt}/{maxAttempts}).";
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                lastError = $"Scheduling Agent returned an invalid response: {ex.Message} " +
+                    $"(attempt {attempt}/{maxAttempts}).";
+            }
+        }
+
+        stopwatch.Stop();
+        return (null, (int)stopwatch.ElapsedMilliseconds, lastError);
+    }
+
+    private static IReadOnlyList<string> ValidateSchedulingResponse(
+        SchedulingRequest request,
+        SchedulingResponse response)
+    {
+        var errors = new List<string>();
+        var requiredEquipment = request.RequiredEquipmentTypeIds.ToHashSet();
+        var duration = TimeSpan.FromMinutes(request.SessionDurationMinutes);
+        var colomboOffset = TimeSpan.FromMinutes(330);
+
+        foreach (var slot in response.Slots)
+        {
+            var room = request.Rooms.SingleOrDefault(r => r.RoomId == slot.RoomId);
+            if (room is null)
+            {
+                errors.Add($"Unknown room {slot.RoomId}.");
+                continue;
+            }
+
+            if (!room.IsActive || room.Capacity < request.GroupSize ||
+                !requiredEquipment.IsSubsetOf(room.EquipmentTypeIds.ToHashSet()))
+            {
+                errors.Add($"Room {slot.RoomId} does not satisfy the request.");
+            }
+
+            if (slot.EndsAt - slot.StartsAt != duration)
+            {
+                errors.Add($"Room {slot.RoomId} has an invalid slot duration.");
+            }
+
+            var localStart = slot.StartsAt.ToOffset(colomboOffset);
+            var localEnd = slot.EndsAt.ToOffset(colomboOffset);
+            if (DateOnly.FromDateTime(localStart.DateTime) < request.PreferredDateFrom ||
+                DateOnly.FromDateTime(localEnd.DateTime) > request.PreferredDateTo ||
+                TimeOnly.FromDateTime(localStart.DateTime) < request.PreferredTimeFrom ||
+                TimeOnly.FromDateTime(localEnd.DateTime) > request.PreferredTimeTo)
+            {
+                errors.Add($"Room {slot.RoomId} has a slot outside the preferred window.");
+            }
+
+            if (room.Bookings.Any(b => b.StartsAt < slot.EndsAt && b.EndsAt > slot.StartsAt) ||
+                room.MaintenanceWindows.Any(w => w.StartsAt < slot.EndsAt && w.EndsAt > slot.StartsAt))
+            {
+                errors.Add($"Room {slot.RoomId} has a conflicting slot.");
+            }
+        }
+
+        for (var i = 0; i < response.Slots.Count; i++)
+        {
+            for (var j = i + 1; j < response.Slots.Count; j++)
+            {
+                if (response.Slots[i].StartsAt < response.Slots[j].EndsAt &&
+                    response.Slots[i].EndsAt > response.Slots[j].StartsAt)
+                {
+                    errors.Add("Proposed sessions overlap each other.");
+                }
+            }
+        }
+
+        return errors;
+    }
+
     private async Task FailAsync(WorkflowExecution execution, BookingRequest bookingRequest, string errorCode, string errorMessage, CancellationToken ct)
     {
         execution.Status = WorkflowStatus.Failed;
@@ -237,30 +438,6 @@ public sealed class WorkflowOrchestrationService(
             DurationMs = durationMs,
         });
         await db.SaveChangesAsync(ct);
-    }
-
-    private static object BuildSchedulingStub(BookingRequest br)
-    {
-        var startsAt = br.PreferredDateFrom.ToDateTime(br.PreferredTimeFrom, DateTimeKind.Utc);
-        var endsAt = startsAt.AddMinutes(br.SessionDurationMinutes);
-        const decimal placeholderHourlyRate = 10m; // stub only — replaced by the real Scheduling agent (S2)
-
-        return new
-        {
-            stub = true,
-            slots = new[]
-            {
-                new
-                {
-                    roomId = (Guid?)null,
-                    roomName = "TBD — pending Rooms & Availability (S2)",
-                    startsAt,
-                    endsAt,
-                    hourlyRate = placeholderHourlyRate,
-                },
-            },
-            conflicts = Array.Empty<object>(),
-        };
     }
 
     private static object BuildResourceStub(BookingRequest br)

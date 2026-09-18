@@ -314,6 +314,7 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         await using var localFactory = CreateFactoryWithFakePlanner(fake);
         var client = localFactory.CreateClient();
         var userIds = new List<Guid>();
+        var roomId = await CreateSchedulingRoomAsync(localFactory);
 
         var (user, _, token) = await TestSupport.CreateAndLoginStudentAsync(client);
         userIds.Add(user.Id);
@@ -336,6 +337,7 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         var requestBody = await requestResponse.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions);
         requestBody!.Status.Should().Be("PendingApproval");
 
+        await DeleteSchedulingRoomAsync(localFactory, roomId);
         await TestSupport.CleanupAsync(localFactory, userIds.ToArray());
     }
 
@@ -601,8 +603,42 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
             {
                 services.RemoveAll<IPlannerClient>();
                 services.AddSingleton<IPlannerClient>(fake);
+                services.RemoveAll<ISchedulingAgentClient>();
+                services.AddSingleton<ISchedulingAgentClient>(new FakeSchedulingAgentClient());
             });
         });
+
+    private static async Task<Guid> CreateSchedulingRoomAsync(WebApplicationFactory<Program> factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var room = new StudyRoom
+        {
+            Id = Guid.NewGuid(),
+            Name = $"Workflow test room {Guid.NewGuid():N}",
+            Building = "Test building",
+            Floor = 1,
+            Capacity = 50,
+            HourlyRate = 100m,
+            QrCode = $"workflow-test-{Guid.NewGuid():N}",
+            IsActive = true,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        db.StudyRooms.Add(room);
+        await db.SaveChangesAsync();
+        return room.Id;
+    }
+
+    private static async Task DeleteSchedulingRoomAsync(
+        WebApplicationFactory<Program> factory,
+        Guid roomId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        await db.StudyRooms.Where(r => r.Id == roomId).ExecuteDeleteAsync();
+    }
 
     private static async Task<WorkflowStatusResponseShape> WaitForTerminalStatusAsync(HttpClient client, Guid requestId, TimeSpan timeout)
     {
