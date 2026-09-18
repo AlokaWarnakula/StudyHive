@@ -32,6 +32,11 @@ jobs:
         working-directory: api
       - run: dotnet build --no-restore
         working-directory: api
+      - run: dotnet tool install --global dotnet-ef --version 8.0.10
+      - run: dotnet ef database update --no-build --project src/StudyHive.Api
+        working-directory: api
+        env:
+          ConnectionStrings__Default: "Host=localhost;Port=5432;Database=studyhive;Username=studyhive;Password=studyhive_dev"
       - run: dotnet test --no-build
         working-directory: api
         env:
@@ -66,12 +71,11 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
         working-directory: agent
+      - name: Configure agent test environment
+        run: echo "ENVIRONMENT=development" > .env
+        working-directory: agent
       - run: pytest -q
         working-directory: agent
-        env:
-          # ENVIRONMENT defaults to "production" (fail-safe) — CI has no real internal API key to
-          # protect, so it opts into the same "development" leniency local dev gets from `.env`.
-          ENVIRONMENT: development
 
   mobile:
     name: mobile (Flutter)

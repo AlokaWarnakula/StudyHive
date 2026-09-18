@@ -7,7 +7,7 @@ requests against the C# client's actual JSON shape and FastAPI serializes respon
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -59,3 +59,61 @@ class PlannerResponse(BaseModel):
     eligible: bool
     reasons: list[str] = Field(default_factory=list)
     steps: list[PlanStep] = Field(default_factory=list)
+
+
+class SchedulingTimeBlock(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    starts_at: datetime = Field(alias="startsAt")
+    ends_at: datetime = Field(alias="endsAt")
+
+
+class SchedulingRoom(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    room_id: UUID = Field(alias="roomId")
+    room_name: str = Field(alias="roomName")
+    capacity: int
+    hourly_rate: float = Field(alias="hourlyRate")
+    is_active: bool = Field(alias="isActive")
+    equipment_type_ids: list[UUID] = Field(default_factory=list, alias="equipmentTypeIds")
+    bookings: list[SchedulingTimeBlock] = Field(default_factory=list)
+    maintenance_windows: list[SchedulingTimeBlock] = Field(default_factory=list, alias="maintenanceWindows")
+
+
+class SchedulingRequest(BaseModel):
+    """S2 Scheduling Agent input. All room and conflict data comes from StudyHive.Api;
+    the agent has no direct database or client access."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    group_size: int = Field(alias="groupSize", ge=1)
+    preferred_date_from: date = Field(alias="preferredDateFrom")
+    preferred_date_to: date = Field(alias="preferredDateTo")
+    preferred_time_from: time = Field(alias="preferredTimeFrom")
+    preferred_time_to: time = Field(alias="preferredTimeTo")
+    sessions_required: int = Field(alias="sessionsRequired", ge=1)
+    session_duration_minutes: int = Field(alias="sessionDurationMinutes", ge=30)
+    required_equipment_type_ids: list[UUID] = Field(
+        default_factory=list, alias="requiredEquipmentTypeIds"
+    )
+    rooms: list[SchedulingRoom] = Field(default_factory=list)
+
+
+class SchedulingSlot(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    room_id: UUID = Field(alias="roomId")
+    room_name: str = Field(alias="roomName")
+    starts_at: datetime = Field(alias="startsAt")
+    ends_at: datetime = Field(alias="endsAt")
+    hourly_rate: float = Field(alias="hourlyRate")
+
+
+class SchedulingResponse(BaseModel):
+    """S2 output contract: `{ slots[], conflicts[] }`."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    slots: list[SchedulingSlot] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)

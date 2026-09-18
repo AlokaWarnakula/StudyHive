@@ -8,11 +8,13 @@ import 'package:provider/provider.dart';
 
 import 'package:mobile/api/api_client.dart';
 import 'package:mobile/api/booking_requests_api.dart';
+import 'package:mobile/api/rooms_api.dart';
 import 'package:mobile/api/student_profiles_api.dart';
 import 'package:mobile/app.dart';
 import 'package:mobile/state/auth_provider.dart';
 import 'package:mobile/state/booking_requests_provider.dart';
 import 'package:mobile/state/profile_provider.dart';
+import 'package:mobile/state/rooms_provider.dart';
 import 'package:mobile/state/token_store.dart';
 
 import 'support/finders.dart';
@@ -82,6 +84,8 @@ Future<void> _pumpApp(WidgetTester tester, AuthProvider authProvider) async {
         ChangeNotifierProvider(
             create: (_) => BookingRequestsProvider(
                 BookingRequestsApi(authProvider.apiClient))),
+        ChangeNotifierProvider(
+            create: (_) => RoomsProvider(RoomsApi(authProvider.apiClient))),
       ],
       child: const StudyHiveApp(),
     ),

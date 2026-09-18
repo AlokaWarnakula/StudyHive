@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'api/booking_requests_api.dart';
+import 'api/rooms_api.dart';
 import 'api/student_profiles_api.dart';
 import 'app.dart';
 import 'state/auth_provider.dart';
 import 'state/booking_requests_provider.dart';
 import 'state/profile_provider.dart';
+import 'state/rooms_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +28,8 @@ Future<void> main() async {
         ChangeNotifierProvider(
             create: (_) => BookingRequestsProvider(
                 BookingRequestsApi(authProvider.apiClient))),
+        ChangeNotifierProvider(
+            create: (_) => RoomsProvider(RoomsApi(authProvider.apiClient))),
       ],
       child: const StudyHiveApp(),
     ),

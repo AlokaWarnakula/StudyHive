@@ -1,91 +1,80 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ApiError } from "../../api/client";
+import { getRoomSchedule, listRooms, type Room, type ScheduleSlot } from "../../api/rooms";
 import { Screen } from "../../components/AppShell";
 import { Icon } from "../../components/Icon";
-import { FixtureNotice, NotBuiltYet } from "../../components/ui";
-import { useFixture } from "../../dev/useFixture";
+import { Tag } from "../../components/ui";
+import { useAuthStore } from "../../store/authStore";
 
-/**
- * W-15 · Room calendar — GET /api/rooms/schedule?from=&to=: booked, held and maintenance blocks
- * in one week grid. Owned by S2.
- */
+/** W-15 · Live weekly booking and maintenance calendar for a selected room. Owned by S2. */
 export function RoomCalendarPage() {
   const navigate = useNavigate();
-  const fixture = useFixture((f) => f.calendar);
+  const token = useAuthStore((s) => s.accessToken);
+  const [params, setParams] = useSearchParams();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const selectedRoom = params.get("room") ?? "";
+  const week = useMemo(() => weekRange(weekOffset), [weekOffset]);
 
-  if (!fixture.enabled) {
-    return (
-      <Screen title="Room calendar" onBack={() => navigate("/rooms")}>
-        <NotBuiltYet owner="S2 rooms" what="The room calendar" />
-      </Screen>
-    );
-  }
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    listRooms(token, { pageSize: 100, sortBy: "name", sortDir: "asc" })
+      .then((result) => {
+        if (cancelled) return;
+        const active = result.items.filter((room) => room.isActive);
+        setRooms(active);
+        if (!selectedRoom && active[0]) setParams({ room: active[0].id }, { replace: true });
+      })
+      .catch((err) => !cancelled && setError(messageOf(err, "Failed to load rooms.")));
+    return () => { cancelled = true; };
+  }, [token, selectedRoom, setParams]);
 
-  const c = fixture.data;
+  useEffect(() => {
+    if (!token || !selectedRoom) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getRoomSchedule(token, selectedRoom, week.start.toISOString(), week.end.toISOString())
+      .then((data) => !cancelled && setSlots(data))
+      .catch((err) => !cancelled && setError(messageOf(err, "Failed to load the room schedule.")))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [token, selectedRoom, week]);
 
-  return (
-    <Screen
-      title="Room calendar"
-      onBack={() => navigate("/rooms")}
-      showUser={false}
-      actions={
-        <>
-          <button type="button" className="btn btn-secondary">
-            Today
-          </button>
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Previous week">
-            <Icon name="chevron-left" />
-          </button>
-          <b style={{ fontSize: 14 }}>{c.range}</b>
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Next week">
-            <Icon name="chevron-right" />
-          </button>
-          <select className="input" style={{ width: 150 }} aria-label="Room filter">
-            <option>All rooms</option>
-          </select>
-        </>
-      }
-    >
-      <FixtureNotice owner="S2" what="The week's bookings and maintenance blocks" />
-
-      <div className="bar" style={{ fontSize: 12, gap: 16 }}>
-        <span className="cal-key">
-          <span className="cal-swatch cal-swatch--approved" />
-          Approved
-        </span>
-        <span className="cal-key">
-          <span className="cal-swatch cal-swatch--pending" />
-          Pending
-        </span>
-        <span className="cal-key">
-          <span className="cal-swatch cal-swatch--maintenance" />
-          Maintenance
-        </span>
-      </div>
-
-      <div className="table-scroll">
-        <div className="cal" role="table" aria-label={`Room calendar, ${c.range}`}>
-          <div className="cal-corner" />
-          {c.days.map((d) => (
-            <div key={d} className="cal-head">
-              <b>{d}</b>
-            </div>
-          ))}
-
-          {c.slots.map((slot) => (
-            <div key={slot} style={{ display: "contents" }}>
-              <div className="cal-slot text-muted">{slot}</div>
-              {c.days.map((_, dayIndex) => {
-                const entry = c.entries.find((e) => e.slot === slot && e.day === dayIndex);
-                return (
-                  <div key={`${slot}-${dayIndex}`} className="cal-cell">
-                    {entry && <div className={`cal-ev cal-ev--${entry.kind}`}>{entry.label}</div>}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-    </Screen>
-  );
+  return <Screen title="Room calendar" onBack={() => navigate("/rooms")} showUser={false} actions={<>
+    <button type="button" className="btn btn-secondary" onClick={() => setWeekOffset(0)}>Today</button>
+    <button type="button" className="btn btn-ghost btn-icon" aria-label="Previous week" onClick={() => setWeekOffset((value) => value - 1)}><Icon name="chevron-left" /></button>
+    <b style={{ fontSize: 14 }}>{week.label}</b>
+    <button type="button" className="btn btn-ghost btn-icon" aria-label="Next week" onClick={() => setWeekOffset((value) => value + 1)}><Icon name="chevron-right" /></button>
+    <select className="input" style={{ width: 180 }} aria-label="Room filter" value={selectedRoom} onChange={(e) => setParams({ room: e.target.value })}>
+      {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+    </select>
+  </>}>
+    <div className="bar" style={{ fontSize: 12, gap: 16 }}><span><Tag tone="accent">Booked</Tag></span><span><Tag tone="outline">Maintenance</Tag></span></div>
+    {error && <p role="alert" className="form-error">{error}</p>}
+    {loading && <div className="state-view">Loading…</div>}
+    {!loading && rooms.length === 0 && <div className="state-view">No active rooms are available.</div>}
+    {!loading && rooms.length > 0 && slots.length === 0 && <div className="state-view">No bookings or maintenance this week.</div>}
+    {slots.length > 0 && <div className="table-scroll"><table className="table"><thead><tr><th>Date</th><th>From</th><th>To</th><th>Room</th><th>Type</th></tr></thead><tbody>
+      {slots.map((slot) => <tr key={`${slot.startsAt}-${slot.endsAt}-${slot.kind}`}><td>{new Date(slot.startsAt).toLocaleDateString()}</td>
+        <td>{new Date(slot.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+        <td>{new Date(slot.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td><td>{slot.roomName}</td>
+        <td><Tag tone={slot.kind === "Maintenance" ? "outline" : "accent"}>{slot.kind}</Tag></td></tr>)}
+    </tbody></table></div>}
+  </Screen>;
 }
+
+function weekRange(offset: number) {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const day = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - day + offset * 7);
+  const end = new Date(start); end.setDate(end.getDate() + 7);
+  return { start, end, label: `${start.toLocaleDateString()} – ${new Date(end.getTime() - 1).toLocaleDateString()}` };
+}
+function messageOf(error: unknown, fallback: string) { return error instanceof ApiError ? error.message : fallback; }

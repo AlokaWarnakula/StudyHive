@@ -179,12 +179,20 @@ describe("Development fixtures", () => {
     expect(FIXTURES_ENABLED).toBe(true);
   });
 
-  it("label every seeded screen as a development preview, never as live data", () => {
+  it("does not label the live S2 room screen as development preview data", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [], page: 1, pageSize: 20, totalItems: 0, totalPages: 0 }),
+      }),
+    );
     signIn("Librarian");
     renderAt("/rooms");
 
-    expect(screen.getByText(/Development preview\./)).toBeInTheDocument();
-    expect(screen.getByText(/S2 has not built this endpoint yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Development preview\./)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("does not label the real S1 screens as a preview", () => {
