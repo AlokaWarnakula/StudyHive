@@ -605,6 +605,8 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
                 services.AddSingleton<IPlannerClient>(fake);
                 services.RemoveAll<ISchedulingAgentClient>();
                 services.AddSingleton<ISchedulingAgentClient>(new FakeSchedulingAgentClient());
+                services.RemoveAll<IResourceClient>();
+                services.AddSingleton<IResourceClient>(new FakeResourceClient());
             });
         });
 
@@ -692,4 +694,17 @@ internal sealed class WorkflowStepLogShape
     public string AgentName { get; init; } = "";
     public string? ToolName { get; init; }
     public string? ValidationResult { get; init; }
+}
+
+internal sealed class FakeResourceClient : IResourceClient
+{
+    public Task<ResourceResponse> PrepareReservationAsync(ResourceRequest request, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ResourceResponse
+        {
+            AllAvailable = true,
+            TotalCost = 0m,
+            Items = []
+        });
+    }
 }
