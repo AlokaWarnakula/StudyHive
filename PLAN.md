@@ -19,7 +19,7 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 | **S1** Requests & Workflow + Planner | ✅ | ✅ Planner | ✅ W-10/11/12 | ✅ | ✅ | Done |
 | **S2** Rooms & Availability + Scheduling | ✅ | ✅ Scheduling | ✅ W-13…18 | ✅ M-09/10/11/14/15 | ✅ | Done |
 | **S3** Consumables & Stock + Resource | ✅ incl. usage report (Day 1) | ✅ Resource (real, wired in) | ✅ W-19…24 live (Day 1) | ✅ browse/detail/picker, linked into booking (Day 1) | ✅ API CRUD/auth/validation + concurrency + `chk_never_oversold` tests | Done |
-| **S4** Costing, Validation, Approval & Audit | ❌ every endpoint returns 501 | ✅ Validation (real, wired in; Day 2) | ❌ 7 pages on fixtures | ❌ 3 screens are shells | ❌ | ~0% |
+| **S4** Costing, Validation, Approval & Audit | ✅ approvals (one transaction), quotations, workflow executions, audit logs, bookings report (Day 2) | ✅ Validation (real, wired in; Day 2) | ❌ 7 pages on fixtures | ❌ 3 screens are shells | ✅ API: approval transaction, rollback, 403/409, read endpoints; agent golden cases | Backend done, screens next |
 | Email (Brevo) | ❌ table exists, nothing sends | | | | | Optional — cut first |
 | Deploy (Railway), APK, ADRs | ❌ | | | | | Not started |
 
@@ -29,6 +29,9 @@ Baseline test results on 29 Sep (with Docker DB + demo data loaded):
 
 After Day 1 (S3 finished, commits `132d0c1`, `733111c`, `de3039d`): API **131**, agent **60**,
 web lint + **55** tests + build, mobile analyze + **52** tests (`flutter test --concurrency=1`) — all green.
+
+After Day 2 (S4 backend, PRs #8–#11 merged on 29 Sep, `main` @ `2098bcb`): API **166**, agent **87**,
+web lint + **55** tests + build, mobile analyze + **52** tests — all green, reviewed by Codex.
 
 **The one thing that matters most:** the headline workflow (Flutter submit → agents → **librarian
 approves on React** → room booked + stock reserved → Flutter shows Confirmed) is broken at the
@@ -165,22 +168,27 @@ API
   - **Decided: `valid=false` → request and workflow `Failed`, error code `VALIDATION_FAILED`.** The error message is the agent's revision note, so the student sees what to change. Validation is the hard gate before a human: no quotation is written, so nothing that failed a rule can ever be approved (e.g. "approve this for free" fails `validate_budget` and never reaches the librarian). The request's `Pending` stock reservations are marked `Released` (they never held stock). Step 4 is logged `Fail` with the full rule results. To try again, the student creates a new request; only a `Draft` can be submitted.
   - The API also checks the agent's answer before persisting it. Every line must price a proposed room or requested item, each line total must be quantity × unit price to the cent, and the fees must add up. A response that fails these checks is retried like a transport error.
   - **Migration `S4QuotationLineRoomId`:** `quotation_line_items.room_id` (FK → `study_rooms`, RESTRICT) is the proposed room. `chk_line_shape` now requires `room_id` on Room lines, while `room_booking_id` stays null until the approval transaction creates the booking and links it. Consumable lines have neither room column.
-- [ ] `QuotationsController`: `GET /api/quotations` (Librarian, paged), `GET /api/quotations/{id}` (Librarian, Student-own). `POST` is system-only (created by the workflow).
-- [ ] **`ApprovalsController` — `POST /api/approvals`** `{ quotationId, decision: Approved|Rejected|RevisionRequested, comments }`, Librarian only:
+- [x] `QuotationsController`: `GET /api/quotations` (Librarian, paged), `GET /api/quotations/{id}` (Librarian, Student-own). `POST` is system-only (created by the workflow).
+- [x] **`ApprovalsController` — `POST /api/approvals`** `{ quotationId, decision: Approved|Rejected|RevisionRequested, comments }`, Librarian only:
   - **Approved = ONE database transaction**: create `room_bookings` (via `IRoomBookingService`) and set each Room quotation line's `room_booking_id` to its new booking + reserve every item (via `IConsumableStockService.ReserveAsync`) + quotation → Approved + request → Approved + workflow → Approved + `approval_decisions` row + `audit_logs` row. Any failure rolls everything back.
   - ⚠️ **`ConsumableStockService.ReserveAsync` opens its own transaction.** EF Core throws if you nest transactions. First change it (and any other service) to reuse `db.Database.CurrentTransaction` when one exists, and only begin/commit its own when none does. Re-run S3 tests after.
   - Room clash → Postgres `23P01` (exclusion constraint) → **409**. Oversell → `23514` → **409**. Second decision on the same quotation → **409** (one active approval per request).
   - Rejected / RevisionRequested: statuses updated, pending stock reservations released, audit row.
   - `GET /api/approvals` (pending first), `GET /api/approvals/{id}`.
-- [ ] `WorkflowExecutionsController`: list (filter/sort/paginate), get by id, `/{id}/steps`.
-- [ ] `AuditLogsController`: `GET /api/audit-logs` (Admin; filter by action/entity/user). Write audit rows from approval + stock operations.
-- [ ] `ReportsController.Bookings()`: `GET /api/reports/bookings` — counts by status, per week, spend vs budget.
-- [ ] **Tests:** approval transaction commits rooms+stock together; clash → 409 and **nothing** written; only Librarian can approve (403 for others); double decision → 409; quotation total = sum of lines; list endpoints 401/403/404.
+  - Done as specified. The approval queue is keyed by **quotation id**: `GET /api/approvals/{quotationId}` returns the queue item and its line items. The slots it books come from the Validation step's logged proposal. Rejected/RevisionRequested require comments.
+- [x] `WorkflowExecutionsController`: list (filter/sort/paginate), get by id, `/{id}/steps`.
+- [x] `AuditLogsController`: `GET /api/audit-logs` (Admin; filter by action/entity/user/date). Approval decisions write audit rows.
+  - [ ] Audit rows from plain stock operations (stock-in, release, mark used) are **not written yet**: carry to Day 4.
+- [x] `ReportsController.Bookings()`: `GET /api/reports/bookings` — counts by status, per week, spend vs budget.
+- [x] **Tests:** approval transaction commits rooms+stock together; clash → 409 and **nothing** written; only Librarian can approve (403 for others); double decision → 409; quotation total = sum of lines; list endpoints 401/403/404.
 
 **Exit gate:** end-to-end via Swagger: submit request → PendingApproval with a real quotation → approve → room booking + Reserved stock exist; full suite green.
 
+✅ Mostly met 29 Sep. The full suite is green, and an automated API test (`ApprovalsControllerTests.End_To_End_Submit_Then_Approve_Books_The_Room_And_Reserves_The_Stock`) walks exactly this path with faked agents. **Still to do:** the manual Swagger run against the real agent service. Do it at the start of Day 3.
+
 ### Day 3 — Thu 2 Oct: **S4 screens**
 Web (`web/src/pages/approvals/`, `reports/`; client `web/src/api/approvals.ts` already typed)
+- ⚠️ `web/src/api/approvals.ts` was written before the API and **does not match it**. `submitApprovalDecision` must send `{ quotationId, decision, comments }` (not `bookingRequestId`/`reason`). `listApprovals` returns queue items keyed by quotation (`status`: Pending/Approved/Rejected/RevisionRequested). The workflow, audit and report shapes are in the controllers under `api/src/StudyHive.Api/Controllers/Approvals/`. Fix the client first.
 - [ ] W-03 `ApprovalQueuePage.tsx` — pending proposals
 - [ ] W-04 `ReviewProposalPage.tsx` — full proposal (slot, items, validation results, quotation) + Approve / Reject / Request revision with comments; show 409 errors clearly
 - [ ] W-05 `QuotationDetailPage.tsx` — line items, totals, budget comparison
