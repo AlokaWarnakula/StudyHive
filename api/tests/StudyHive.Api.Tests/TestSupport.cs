@@ -105,6 +105,8 @@ internal static class TestSupport
             var requestIds = await db.BookingRequests.Where(r => profileIds.Contains(r.StudentId)).Select(r => r.Id).ToListAsync();
             if (requestIds.Count > 0)
             {
+                // quotations.booking_request_id is RESTRICT; its line items cascade with it.
+                await db.Quotations.Where(q => requestIds.Contains(q.BookingRequestId)).ExecuteDeleteAsync();
                 db.WorkflowExecutions.RemoveRange(db.WorkflowExecutions.Where(w => requestIds.Contains(w.BookingRequestId)));
                 await db.SaveChangesAsync();
                 db.BookingRequests.RemoveRange(db.BookingRequests.Where(r => requestIds.Contains(r.Id)));

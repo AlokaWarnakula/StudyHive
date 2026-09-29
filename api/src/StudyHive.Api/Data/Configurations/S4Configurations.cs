@@ -69,6 +69,11 @@ public class QuotationLineItemConfiguration : IEntityTypeConfiguration<Quotation
             .HasForeignKey(x => x.QuotationId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        b.HasOne(x => x.Room)
+            .WithMany()
+            .HasForeignKey(x => x.RoomId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         b.HasOne(x => x.RoomBooking)
             .WithMany(x => x.QuotationLineItems)
             .HasForeignKey(x => x.RoomBookingId)
@@ -86,8 +91,8 @@ public class QuotationLineItemConfiguration : IEntityTypeConfiguration<Quotation
             tb.HasCheckConstraint("ck_quotation_line_items_unit_price", "unit_price >= 0");
             tb.HasCheckConstraint(
                 "chk_line_shape",
-                "(item_type = 'Room' AND room_booking_id IS NOT NULL AND consumable_id IS NULL) OR " +
-                "(item_type = 'Consumable' AND consumable_id IS NOT NULL AND room_booking_id IS NULL)");
+                "(item_type = 'Room' AND room_id IS NOT NULL AND consumable_id IS NULL) OR " +
+                "(item_type = 'Consumable' AND consumable_id IS NOT NULL AND room_id IS NULL AND room_booking_id IS NULL)");
         });
     }
 }
