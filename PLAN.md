@@ -18,7 +18,7 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 | Shared foundation (auth, shell, CI) | ✅ | — | ✅ | ✅ | ✅ | Done |
 | **S1** Requests & Workflow + Planner | ✅ | ✅ Planner | ✅ W-10/11/12 | ✅ | ✅ | Done |
 | **S2** Rooms & Availability + Scheduling | ✅ | ✅ Scheduling | ✅ W-13…18 | ✅ M-09/10/11/14/15 | ✅ | Done |
-| **S3** Consumables & Stock + Resource | ✅ all endpoints except the usage report | ✅ Resource (real, wired in) | ❌ 6 pages still on dev fixtures | ❌ 3 screens are empty shells | ⚠️ agent tests only; **no API tests, no concurrency test** | ~40% |
+| **S3** Consumables & Stock + Resource | ✅ incl. usage report (Day 1) | ✅ Resource (real, wired in) | ✅ W-19…24 live (Day 1) | ✅ browse/detail/picker, linked into booking (Day 1) | ✅ API CRUD/auth/validation + concurrency + `chk_never_oversold` tests | Done |
 | **S4** Costing, Validation, Approval & Audit | ❌ every endpoint returns 501 | ❌ Validation step is a stub | ❌ 7 pages on fixtures | ❌ 3 screens are shells | ❌ | ~0% |
 | Email (Brevo) | ❌ table exists, nothing sends | | | | | Optional — cut first |
 | Deploy (Railway), APK, ADRs | ❌ | | | | | Not started |
@@ -26,6 +26,9 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 Baseline test results on 29 Sep (with Docker DB + demo data loaded):
 - API: **95 passed, 0 failed** (`cd api && dotnet test`)
 - Agent: **50 passed** (`cd agent && .venv/Scripts/python -m pytest -q`)
+
+After Day 1 (S3 finished, commits `132d0c1`, `733111c`, `de3039d`): API **131**, agent **60**,
+web lint + **55** tests + build, mobile analyze + **52** tests (`flutter test --concurrency=1`) — all green.
 
 **The one thing that matters most:** the headline workflow (Flutter submit → agents → **librarian
 approves on React** → room booked + stock reserved → Flutter shows Confirmed) is broken at the
@@ -128,27 +131,28 @@ Tests run against the same local DB and clean up their own rows; they pass with 
 
 ### Day 1 — Tue 30 Sep: **finish S3** (Consumables & Stock)
 Backend
-- [ ] `GET /api/reports/consumable-usage` (StoreOfficer) — `Controllers/Approvals/ReportsController.cs` (`ConsumableUsage()` currently 501). Usage from `stock_transactions` / `stock_reservations` by consumable over a date range + current low-stock list.
-- [ ] **API tests** (new `ConsumablesControllerTests.cs`, `SuppliersControllerTests.cs`, `StockReservationsControllerTests.cs`): CRUD happy path, 401, 403 (Student can't create), 404, validation (qty > 0, stock-in positive, only Reserved can be released).
-- [ ] **Concurrency test (headline claim #2):** two parallel `ReserveAsync` calls for the last units of one consumable → exactly one succeeds, `reserved_quantity <= stock_quantity`, no negative stock.
-- [ ] One DB-constraint test: direct update that would oversell is rejected by `chk_never_oversold`.
+- [x] `GET /api/reports/consumable-usage` (StoreOfficer) — `Controllers/Approvals/ReportsController.cs` (`ConsumableUsage()` was 501). Usage from `stock_transactions` / `stock_reservations` by consumable over a date range + current low-stock list.
+- [x] **API tests** (new `ConsumablesControllerTests.cs`, `SuppliersControllerTests.cs`, `StockReservationsControllerTests.cs`): CRUD happy path, 401, 403 (Student can't create), 404, validation (qty > 0, stock-in positive, only Reserved can be released).
+- [x] **Concurrency test (headline claim #2):** two parallel `ReserveAsync` calls for the last units of one consumable → exactly one succeeds, `reserved_quantity <= stock_quantity`, no negative stock.
+- [x] One DB-constraint test: direct update that would oversell is rejected by `chk_never_oversold`.
 
 Web (`web/src/pages/store/`, client `web/src/api/consumables.ts` already typed)
-- [ ] W-19 `ConsumablesPage.tsx` — search, filter by stock level, sort, paginate; add/edit dialog
-- [ ] W-20 `ConsumableDetailPage.tsx` — details + transaction history + stock-in form
-- [ ] W-21 `LowStockPage.tsx`
-- [ ] W-22 `ReservationsPage.tsx` — filter by status (`Pending/Reserved/Released/Used` — DB values), release / mark used actions
-- [ ] W-23 `SuppliersPage.tsx` — list, add, edit
-- [ ] W-24 `reports/ConsumableUsagePage.tsx`
-- [ ] 3+ Vitest tests (renders, form validation, error state)
+- [x] W-19 `ConsumablesPage.tsx` — search, filter by stock level, sort, paginate; add/edit dialog (the "at or below reorder" / "out of stock" views read `/api/consumables/low-stock` — the list endpoint has no stock-level parameter)
+- [x] W-20 `ConsumableDetailPage.tsx` — details + transaction history + stock-in form
+- [x] W-21 `LowStockPage.tsx`
+- [x] W-22 `ReservationsPage.tsx` — filter by status (`Pending/Reserved/Released/Used` — DB values), release / mark used actions
+- [x] W-23 `SuppliersPage.tsx` — list, add, edit
+- [x] W-24 `reports/ConsumableUsagePage.tsx`
+- [x] 3+ Vitest tests (renders, form validation, error state)
 
 Mobile (`mobile/lib/screens/consumables/`, client `consumables_api.dart` has TODOs)
-- [ ] Implement `consumables_api.dart` + `consumables_provider.dart`
-- [ ] Browse consumables, consumable detail (price, stock status)
-- [ ] `select_consumables_screen.dart` quantity picker, **linked from `create_request_screen.dart`** so requests carry `booking_request_items`
-- [ ] 3+ widget tests
+- [x] Implement `consumables_api.dart` + `consumables_provider.dart`
+- [x] Browse consumables, consumable detail (price, stock status)
+- [x] `select_consumables_screen.dart` quantity picker, **linked from `create_request_screen.dart`** so requests carry `booking_request_items`
+- [x] 3+ widget tests
 
 **Exit gate:** no S3 page uses fixtures; store officer can stock-in and see ledger; concurrency test passes; full suite green.
+✅ Met 29 Sep: stock-in checked in the browser against the local API (ledger row appears); concurrency test runs 10 racing rounds; suites as in §1.
 
 ### Day 2 — Wed 1 Oct: **S4 backend** (the critical path)
 Agent
