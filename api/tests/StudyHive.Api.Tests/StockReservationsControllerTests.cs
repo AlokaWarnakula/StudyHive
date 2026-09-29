@@ -372,13 +372,22 @@ public class StockReservationsControllerTests(S3Fixture s3) : IClassFixture<S3Fi
         var second = await Page("sortBy=issued&pageSize=1&page=2");
         second.Page.Should().Be(2);
         second.Items.Should().ContainSingle().Which.ConsumableId.Should().Be(dear);
-        second.TotalItems.Should().Be(first.TotalItems);
+        // Other test classes create active consumables concurrently, so the count may only grow.
+        second.TotalItems.Should().BeGreaterThanOrEqualTo(first.TotalItems);
 
         var byCost = await Page("sortBy=cost&pageSize=2");
         byCost.Items.Select(r => r.ConsumableId).Should().Equal(dear, cheap);
         byCost.Items.Select(r => r.Cost).Should().Equal(400m, 250m);
 
-        var ascending = await Page($"sortBy=issued&sortDir=asc&pageSize=1&page={first.TotalItems}");
+        // The last ascending page moves whenever a concurrent test adds a consumable between the two
+        // reads, so re-read until the page asked for is still the last one in its own response.
+        PagedResultShape<ConsumableUsageRowResponse> ascending = null!;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var lastPage = (await Page("sortBy=issued&sortDir=asc&pageSize=1&page=1")).TotalItems;
+            ascending = await Page($"sortBy=issued&sortDir=asc&pageSize=1&page={lastPage}");
+            if (ascending.TotalItems == lastPage) break;
+        }
         ascending.Items.Should().ContainSingle().Which.ConsumableId.Should().Be(cheap, "the largest issue sorts last ascending");
     }
 
