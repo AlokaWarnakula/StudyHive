@@ -43,8 +43,10 @@ away:
   `Alice@x.lk` and `alice@x.lk` collide instead of creating two accounts.
 - **`tstzrange` + GiST** for `room_bookings.slot` and `maintenance_windows.window`, which is what
   makes the exclusion constraint and the availability query possible at all.
-- **`chk_line_shape`** on `quotation_line_items`: a Room line must carry a `room_booking_id` and no
-  `consumable_id`, and vice versa. A malformed line is rejected rather than stored.
+- **`chk_line_shape`** on `quotation_line_items`: a Room line must carry a `room_id` and no
+  `consumable_id` (its `room_booking_id` stays null until the approval transaction creates the
+  booking and links it); a Consumable line carries a `consumable_id` and neither room column. A
+  malformed line is rejected rather than stored.
 - **Quotation versioning** (`uq_quote_version`, `ux_quote_active`) supports the revise-and-resubmit
   loop the plan's status list implies but never spells out.
 
@@ -336,14 +338,16 @@ judged against even if the student later edits the request.
 
 ### `quotation_line_items`
 `id` uuid PK · `quotation_id` CASCADE · `item_type` varchar(20) CHECK `Room`/`Consumable` ·
-`room_booking_id` SET NULL · `consumable_id` SET NULL · `item_name` varchar(150) ·
+`room_id` → `study_rooms` RESTRICT (S4 migration `S4QuotationLineRoomId`) · `room_booking_id` SET NULL ·
+`consumable_id` SET NULL · `item_name` varchar(150) ·
 `quantity` numeric(10,2) CHECK > 0 · `unit_price` numeric(12,2) CHECK >= 0 ·
 `line_total` numeric(12,2) **generated**: `quantity * unit_price` · `created_at`.
 
 ```sql
 CONSTRAINT chk_line_shape CHECK (
-  (item_type = 'Room'       AND room_booking_id IS NOT NULL AND consumable_id  IS NULL) OR
-  (item_type = 'Consumable' AND consumable_id  IS NOT NULL AND room_booking_id IS NULL))
+  (item_type = 'Room'       AND room_id       IS NOT NULL AND consumable_id IS NULL) OR
+  (item_type = 'Consumable' AND consumable_id IS NOT NULL AND room_id       IS NULL
+                            AND room_booking_id IS NULL))
 ```
 
 A Room line points at a booking, a Consumable line points at a consumable, and neither can point at

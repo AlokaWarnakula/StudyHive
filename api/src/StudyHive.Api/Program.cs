@@ -212,6 +212,16 @@ builder.Services.AddHttpClient<IResourceClient, ResourceClient>(client =>
     }
 });
 
+// S4: same agent service, same base URL/key — route /validation/validate.
+builder.Services.AddHttpClient<IValidationClient, ValidationClient>(client =>
+{
+    client.BaseAddress = new Uri(agentOptions.BaseUrl);
+    if (!string.IsNullOrWhiteSpace(agentOptions.InternalApiKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", agentOptions.InternalApiKey);
+    }
+});
+
 builder.Services.AddScoped<IBookingEligibilityService, BookingEligibilityService>();
 builder.Services.AddScoped<IRoomBookingService, RoomBookingService>();
 builder.Services.AddScoped<IWorkflowOrchestrationService, WorkflowOrchestrationService>();

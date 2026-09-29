@@ -11,13 +11,13 @@ using StudyHive.Api.Data.Entities;
 namespace StudyHive.Api.Services;
 
 /// <summary>
-/// Runs one booking request's agentic workflow end to end: calls the Planner Agent, then the real
-/// Resource Agent (S3 — availability/pricing, plus one Pending stock_reservations row per line so
-/// the librarian's approval screen can see what would be reserved), then persists contract-shaped
-/// Scheduling/Validation stub steps (DOCS §04: "Use contract-correct fake Scheduling/... Validation
-/// outputs until later owners replace them") and moves the request to PendingApproval. Every failure
-/// path (ineligible, planner/resource unreachable, workflow timeout) ends in a terminal
-/// Failed/Rejected status with an error code — never a half-updated request.
+/// Runs one booking request's agentic workflow end to end: the Planner Agent (S1), the Scheduling
+/// Agent (S2), the Resource Agent (S3 — availability/pricing, plus one Pending stock_reservations row
+/// per line so the librarian's approval screen can see what would be reserved), then the Validation
+/// Agent (S4), whose quotation is persisted as a Proposed <see cref="Quotation"/> with its line items
+/// as the request moves to PendingApproval. Every failure path (ineligible, an agent unreachable,
+/// validation failed, workflow timeout) ends in a terminal Failed/Rejected status with an error code —
+/// never a half-updated request.
 /// </summary>
 public interface IWorkflowOrchestrationService
 {
@@ -31,6 +31,7 @@ public sealed class WorkflowOrchestrationService(
     IPlannerClient plannerClient,
     ISchedulingAgentClient schedulingAgentClient,
     IResourceClient resourceClient,
+    IValidationClient validationClient,
     IConsumableStockService stockService,
     IOptions<WorkflowLimitsOptions> limitsOptions) : IWorkflowOrchestrationService
 {
@@ -178,7 +179,6 @@ public sealed class WorkflowOrchestrationService(
                 return;
             }
 
-            // Steps 3-4 remain the S3/S4 contract-shaped stubs until their owners replace them.
             // Step 3: the real Resource Agent (S3). The agent has no database access, so — exactly
             // how `plannerRequest` above carries eligibility already computed — this API reads each
             // requested consumable's current availability/price itself and hands both down on the
@@ -236,10 +236,45 @@ public sealed class WorkflowOrchestrationService(
                 }
             }
 
-            // Step 4: contract-shaped Validation stub — S4 replaces this in its own relay handoff.
-            var validationOutput = BuildValidationStub(bookingRequest);
-            await LogStepAsync(execution.Id, 4, "Validation", "calculate_quotation",
-                input: new { }, output: validationOutput, StepValidationResult.Pass, null, durationMs: 0, ct);
+            // Step 4: the real Validation Agent (S4) — the last deterministic gate before a librarian
+            // sees the proposal. It re-checks the whole proposal from the same trusted snapshots
+            // steps 2 and 3 used and prices it; the agent has no database access.
+            var validationRequest = BuildValidationRequest(bookingRequest, schedulingRequest, schedulingOutput, resourceRequest);
+            var (validationResponse, validationDurationMs, validationError) =
+                await CallValidationWithRetriesAsync(validationRequest, limits, ct);
+
+            await LogStepAsync(
+                execution.Id, stepNumber: 4, agentName: "Validation", toolName: "calculate_quotation",
+                input: validationRequest,
+                output: validationResponse is null ? new { error = validationError } : validationResponse,
+                validationResult: validationResponse is { Valid: true } ? StepValidationResult.Pass : StepValidationResult.Fail,
+                errorMessage: validationError ?? (validationResponse is { Valid: false }
+                    ? string.Join(" ", validationResponse.Failures)
+                    : null),
+                durationMs: validationDurationMs, ct);
+
+            if (validationResponse is null)
+            {
+                await FailAsync(execution, bookingRequest, "STEP_RETRY_EXHAUSTED",
+                    validationError ?? "Validation agent did not respond after retries.", ct);
+                return;
+            }
+
+            // PLAN.md Day 2 decision: a proposal that fails a hard rule never reaches the librarian.
+            // No quotation is written (so nothing invalid is ever approvable), the Pending stock
+            // notes are released, and the agent's revision note is what the student sees.
+            if (!validationResponse.Valid)
+            {
+                await ReleasePendingReservationsAsync(bookingRequest, ct);
+                await FailAsync(execution, bookingRequest, "VALIDATION_FAILED",
+                    validationResponse.RevisionNote ?? string.Join(" ", validationResponse.Failures), ct);
+                return;
+            }
+
+            // Added to the change tracker here and saved by the SaveChangesAsync below, together with
+            // the status change — one implicit transaction, so PendingApproval never exists without
+            // its quotation.
+            await AddProposedQuotationAsync(bookingRequest, validationResponse.Quotation, ct);
 
             execution.Status = WorkflowStatus.PendingApproval;
             execution.CurrentStep = 4;
@@ -499,6 +534,171 @@ public sealed class WorkflowOrchestrationService(
         return (null, (int)stopwatch.ElapsedMilliseconds, lastError);
     }
 
+    private static ValidationRequest BuildValidationRequest(
+        BookingRequest bookingRequest,
+        SchedulingRequest schedulingRequest,
+        SchedulingResponse schedulingResponse,
+        ResourceRequest resourceRequest)
+    {
+        var slotRoomIds = schedulingResponse.Slots.Select(s => s.RoomId).ToHashSet();
+        return new ValidationRequest
+        {
+            Objective = bookingRequest.Objective,
+            GroupSize = bookingRequest.GroupSize,
+            Budget = bookingRequest.Budget,
+            SessionsRequired = bookingRequest.SessionsRequired,
+            SessionDurationMinutes = bookingRequest.SessionDurationMinutes,
+            ProposedSlots = schedulingResponse.Slots,
+            Rooms = schedulingRequest.Rooms.Where(r => slotRoomIds.Contains(r.RoomId)).ToList(),
+            Items = resourceRequest.RequestedItems,
+        };
+    }
+
+    private async Task<(ValidationResponse? Response, int DurationMs, string? Error)> CallValidationWithRetriesAsync(
+        ValidationRequest request, WorkflowLimitsOptions limits, CancellationToken ct)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string? lastError = null;
+        var maxAttempts = limits.MaxRetriesPerStep + 1;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            attemptCts.CancelAfter(TimeSpan.FromSeconds(limits.ToolCallTimeoutSeconds));
+            try
+            {
+                var response = await validationClient.ValidateAsync(request, attemptCts.Token);
+                var contractErrors = ValidateValidationResponse(request, response);
+                if (contractErrors.Count == 0)
+                {
+                    stopwatch.Stop();
+                    return (response, (int)stopwatch.ElapsedMilliseconds, null);
+                }
+
+                lastError = $"Validation response failed checks: {string.Join(" ", contractErrors)} " +
+                    $"(attempt {attempt}/{maxAttempts}).";
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                lastError = $"Validation call timed out after {limits.ToolCallTimeoutSeconds}s (attempt {attempt}/{maxAttempts}).";
+            }
+            catch (HttpRequestException ex)
+            {
+                lastError = $"Validation call failed: {ex.Message} (attempt {attempt}/{maxAttempts}).";
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                lastError = $"Validation returned an invalid response: {ex.Message} (attempt {attempt}/{maxAttempts}).";
+            }
+        }
+
+        stopwatch.Stop();
+        return (null, (int)stopwatch.ElapsedMilliseconds, lastError);
+    }
+
+    /// <summary>
+    /// The API's own check that the agent's answer is something it may persist: every line prices a
+    /// room or consumable this request actually proposed, each line total is quantity x unit price
+    /// to the cent (the same arithmetic as the generated <c>quotation_line_items.line_total</c>), and
+    /// the fees and total add up. <c>valid=true</c> must also agree with the rule results. A response
+    /// that fails is retried like a transport error.
+    /// </summary>
+    private static IReadOnlyList<string> ValidateValidationResponse(ValidationRequest request, ValidationResponse response)
+    {
+        var errors = new List<string>();
+        var roomIds = request.ProposedSlots.Select(s => s.RoomId).ToHashSet();
+        var consumableIds = request.Items.Select(i => i.ConsumableId).ToHashSet();
+        var quotation = response.Quotation;
+
+        if (response.Valid && response.Results.Any(r => !r.Passed))
+        {
+            errors.Add("valid=true contradicts a failed rule.");
+        }
+
+        foreach (var line in quotation.LineItems)
+        {
+            var shapeOk = line.ItemType switch
+            {
+                nameof(QuotationLineItemType.Room) =>
+                    line.RoomId is { } roomId && roomIds.Contains(roomId) && line.ConsumableId is null,
+                nameof(QuotationLineItemType.Consumable) =>
+                    line.ConsumableId is { } consumableId && consumableIds.Contains(consumableId) && line.RoomId is null,
+                _ => false,
+            };
+            if (!shapeOk)
+            {
+                errors.Add($"Line '{line.ItemName}' does not price a proposed room or requested item.");
+            }
+
+            if (line.Quantity <= 0 || line.UnitPrice < 0 ||
+                Math.Round(line.Quantity * line.UnitPrice, 2, MidpointRounding.AwayFromZero) != line.LineTotal)
+            {
+                errors.Add($"Line '{line.ItemName}' total is not quantity x unit price.");
+            }
+        }
+
+        var roomFee = quotation.LineItems.Where(l => l.ItemType == nameof(QuotationLineItemType.Room)).Sum(l => l.LineTotal);
+        var consumableCost = quotation.LineItems.Where(l => l.ItemType == nameof(QuotationLineItemType.Consumable)).Sum(l => l.LineTotal);
+        if (roomFee != quotation.RoomFee || consumableCost != quotation.ConsumableCost ||
+            quotation.RoomFee + quotation.ConsumableCost != quotation.Total)
+        {
+            errors.Add("Quotation fees and total do not match its line items.");
+        }
+
+        return errors;
+    }
+
+    private async Task AddProposedQuotationAsync(BookingRequest bookingRequest, ValidationQuotation quotation, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var latestVersion = await db.Quotations
+            .Where(q => q.BookingRequestId == bookingRequest.Id)
+            .MaxAsync(q => (int?)q.Version, ct) ?? 0;
+
+        db.Quotations.Add(new Quotation
+        {
+            Id = Guid.NewGuid(),
+            BookingRequestId = bookingRequest.Id,
+            Version = latestVersion + 1,
+            RoomFee = quotation.RoomFee,
+            ConsumableCost = quotation.ConsumableCost,
+            BudgetSnapshot = bookingRequest.Budget,
+            Status = QuotationStatus.Proposed,
+            CreatedAt = now,
+            UpdatedAt = now,
+            LineItems = quotation.LineItems.Select(line => new QuotationLineItem
+            {
+                Id = Guid.NewGuid(),
+                ItemType = Enum.Parse<QuotationLineItemType>(line.ItemType),
+                RoomId = line.RoomId,
+                ConsumableId = line.ConsumableId,
+                ItemName = line.ItemName.Length > 150 ? line.ItemName[..150] : line.ItemName,
+                Quantity = line.Quantity,
+                UnitPrice = line.UnitPrice,
+                CreatedAt = now,
+            }).ToList(),
+        });
+    }
+
+    /// <summary>Pending reservations never held stock (see CreatePendingReservationAsync), so
+    /// releasing them is a status change only — no reserved_quantity or ledger movement. Saved by
+    /// the FailAsync that follows, in the same SaveChangesAsync as the Failed status.</summary>
+    private async Task ReleasePendingReservationsAsync(BookingRequest bookingRequest, CancellationToken ct)
+    {
+        var itemIds = bookingRequest.Items.Select(i => i.Id).ToList();
+        var pending = await db.StockReservations
+            .Where(r => itemIds.Contains(r.BookingRequestItemId) && r.Status == StockReservationStatus.Pending)
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var reservation in pending)
+        {
+            reservation.Status = StockReservationStatus.Released;
+            reservation.ReleasedAt = now;
+            reservation.UpdatedAt = now;
+        }
+    }
+
     private async Task FailAsync(WorkflowExecution execution, BookingRequest bookingRequest, string errorCode, string errorMessage, CancellationToken ct)
     {
         execution.Status = WorkflowStatus.Failed;
@@ -532,36 +732,5 @@ public sealed class WorkflowOrchestrationService(
             DurationMs = durationMs,
         });
         await db.SaveChangesAsync(ct);
-    }
-
-    private static object BuildValidationStub(BookingRequest br)
-    {
-        // Deliberately naive placeholder arithmetic — S4 (Costing & Approval) replaces this with the
-        // real deterministic Validation agent. It exists only so PendingApproval carries a plausible,
-        // contract-shaped quotation for a librarian to look at.
-        var hours = br.SessionDurationMinutes / 60m;
-        var roomFee = hours * 10m * br.SessionsRequired;
-        var consumableCost = br.Items.Sum(i => i.Quantity * 1m);
-        var total = roomFee + consumableCost;
-
-        return new
-        {
-            stub = true,
-            valid = true,
-            results = new[]
-            {
-                new { rule = "validate_capacity", passed = true, detail = "Stub: capacity check deferred to S2." },
-                new { rule = "validate_stock", passed = true, detail = "Stub: this stage's own re-check deferred to S4 (step 3's Resource output already has the real availability)." },
-                new { rule = "validate_budget", passed = total <= br.Budget, detail = $"Stub estimate {total:0.00} vs budget {br.Budget:0.00}." },
-            },
-            quotation = new
-            {
-                roomFee,
-                consumableCost,
-                total,
-                lineItems = Array.Empty<object>(),
-            },
-            failures = Array.Empty<object>(),
-        };
     }
 }

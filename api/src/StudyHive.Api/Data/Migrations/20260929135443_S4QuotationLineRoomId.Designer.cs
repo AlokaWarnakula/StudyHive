@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using StudyHive.Api.Data;
@@ -11,9 +12,11 @@ using StudyHive.Api.Data;
 namespace StudyHive.Api.Data.Migrations
 {
     [DbContext(typeof(StudyHiveDbContext))]
-    partial class StudyHiveDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929135443_S4QuotationLineRoomId")]
+    partial class S4QuotationLineRoomId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
