@@ -123,8 +123,8 @@ Tests run against the same local DB and clean up their own rows; they pass with 
 - [x] Docker DB up, migrations applied, baseline tests green (95 API / 50 agent)
 - [x] Demo data script `infra/seed/demo-data.sql` + extra eligibility students
 - [x] Grok placeholders in `agent/.env` + `.env.example` files
-- [ ] **Switch Planner summary from Gemini → Grok**: add `grok_api_key`, `grok_base_url`, `grok_model` to `agent/app/settings.py`; new `agent/app/llm.py` with one `chat(prompt_data) -> str | None` seam; planner uses it; update `test_planner.py` + `conftest.py` (blank key by default). Remove the `google-genai` dependency if nothing else uses it.
-- [ ] Commit `PLAN.md`, demo data, Grok change.
+- [x] **Switch Planner summary from Gemini → Grok**: add `grok_api_key`, `grok_base_url`, `grok_model` to `agent/app/settings.py`; new `agent/app/llm.py` with one `chat(prompt_data) -> str | None` seam; planner uses it; update `test_planner.py` + `conftest.py` (blank key by default). Remove the `google-genai` dependency if nothing else uses it.
+- [x] Commit `PLAN.md`, demo data, Grok change.
 
 ### Day 1 — Tue 30 Sep: **finish S3** (Consumables & Stock)
 Backend
