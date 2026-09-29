@@ -14,6 +14,7 @@ import { Icon, type IconName } from "./Icon";
 
 const LIBRARIAN: StaffRole[] = ["Librarian", "Admin"];
 const STORE: StaffRole[] = ["StoreOfficer", "Admin"];
+const STORE_OFFICER: StaffRole[] = ["StoreOfficer"];
 const ADMIN_ONLY: StaffRole[] = ["Admin"];
 const ALL_STAFF: StaffRole[] = ["Librarian", "StoreOfficer", "Admin"];
 
@@ -55,6 +56,7 @@ const NAV: NavGroup[] = [
       { to: "/consumables", label: "Consumables", icon: "package", allow: STORE, end: true },
       { to: "/reservations", label: "Reservations", icon: "clipboard-list", allow: STORE },
       { to: "/suppliers", label: "Suppliers", icon: "truck", allow: STORE },
+      { to: "/reports/consumables", label: "Usage report", icon: "bar-chart-3", allow: STORE_OFFICER },
     ],
   },
   {
