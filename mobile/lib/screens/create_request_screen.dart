@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
-import '../data/demo_seed.dart';
-import '../models/booking_request.dart';
-import '../models/consumable.dart';
 import '../state/booking_requests_provider.dart';
+import '../state/consumables_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/studyhive_ui.dart';
+import 'consumables/select_consumables_screen.dart';
 import 'workflow_progress_screen.dart';
 
 String _isoDate(DateTime value) =>
@@ -28,6 +27,10 @@ String _longDate(DateTime value) =>
 
 /// M-04 / M-05 / M-06 — the three-step booking flow. The reference asks for a
 /// single date (from and to are the same day) plus a start and end time.
+///
+/// Step 2's consumables come from the live catalogue through [ConsumablesProvider]; its
+/// selection (shared with the full-screen [SelectConsumablesScreen]) is sent as the request's
+/// `items`. Without a registered provider the step says item selection is unavailable.
 class CreateRequestScreen extends StatefulWidget {
   const CreateRequestScreen({super.key});
 
@@ -39,7 +42,6 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   final _formKey = GlobalKey<FormState>();
   final _objective = TextEditingController();
   final _budget = TextEditingController(text: '1000');
-  final Map<String, int> _quantities = {};
   int _step = 0;
   int _people = 4;
   DateTime _date = DateTime.now().add(const Duration(days: 3));
@@ -49,14 +51,24 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   bool _submitting = false;
 
   @override
+  void initState() {
+    super.initState();
+    // A new request starts with no items, whatever an abandoned earlier one picked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _consumables?.clearSelection();
+    });
+  }
+
+  @override
   void dispose() {
     _objective.dispose();
     _budget.dispose();
     super.dispose();
   }
 
-  List<ConsumableDetail> get _catalogue =>
-      demoPreviewEnabled ? demoConsumables : const <ConsumableDetail>[];
+  /// Null when no provider is registered above this screen (e.g. a design-frame test).
+  ConsumablesProvider? get _consumables =>
+      Provider.of<ConsumablesProvider?>(context, listen: false);
 
   Future<void> _pickDate() async {
     final selected = await showDatePicker(
@@ -77,7 +89,20 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
 
   void _next() {
     if (_step == 0 && !_formKey.currentState!.validate()) return;
+    if (_step == 0) {
+      final consumables = _consumables;
+      if (consumables != null && consumables.items.isEmpty && !consumables.loading) {
+        consumables.refresh();
+      }
+    }
     setState(() => _step += 1);
+  }
+
+  Future<void> _openPicker() async {
+    await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const SelectConsumablesScreen()));
+    // The picker may have left the list filtered by its search; step 2 shows the whole catalogue.
+    if (mounted) await _consumables?.refresh();
   }
 
   void _back() {
@@ -93,11 +118,8 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
       _error = null;
       _submitting = true;
     });
-    final items = _catalogue
-        .where((item) => (_quantities[item.id] ?? 0) > 0)
-        .map((item) => BookingRequestItem(
-            consumableId: item.id, quantity: _quantities[item.id]!))
-        .toList();
+    final consumables = _consumables;
+    final items = consumables?.selectedItems ?? const [];
     try {
       final created =
           await context.read<BookingRequestsProvider>().createAndSubmit(
@@ -113,6 +135,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
                 items: items,
               );
       if (!mounted) return;
+      consumables?.clearSelection();
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
             builder: (_) => WorkflowProgressScreen(requestId: created.id)),
@@ -133,10 +156,6 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
     return (end - start).clamp(30, 480);
   }
 
-  double get _itemsTotal => _catalogue.fold(
-        0,
-        (total, item) => total + item.unitPrice * (_quantities[item.id] ?? 0),
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -239,8 +258,11 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
     );
   }
 
-  /// M-05 "Book a room — step 2": the optional consumables picker.
+  /// M-05 "Book a room — step 2": the optional consumables picker, over the live catalogue.
   Widget _buildItems() {
+    final consumables = context.watch<ConsumablesProvider?>();
+    final total = consumables?.selectionTotal ?? 0;
+
     return ScreenBody(
       key: const ValueKey('request-step-2'),
       children: [
@@ -249,14 +271,17 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         const Text(
             'Need markers or printouts? Add them and staff will set them aside.',
             style: TextStyle(fontSize: 14)),
-        if (!demoPreviewEnabled)
+        if (consumables == null)
           const Tile(children: [
             Text(
                 'Item selection will be available when the consumables service is connected.'),
           ])
         else ...[
-          const DemoPreviewBanner(),
-          for (final item in demoConsumables) _itemPicker(item),
+          ...ConsumablePickerList.children(consumables),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ShLink('Search all items', onPressed: _openPicker),
+          ),
         ],
         Container(
           padding: const EdgeInsets.only(top: 12),
@@ -264,52 +289,14 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
               border: Border(top: BorderSide(color: AppColors.divider))),
           child: Column(
             children: [
-              Kv('Items subtotal', 'Rs. ${_itemsTotal.toStringAsFixed(0)}'),
+              Kv('Items subtotal', rupees(total)),
               const SizedBox(height: 10),
               PrimaryButton('Next: review', onPressed: _next),
-              GhostButton('Skip, I need no items',
-                  onPressed: () => setState(() {
-                        _quantities.clear();
-                        _step = 2;
-                      })),
+              GhostButton('Skip, I need no items', onPressed: () {
+                consumables?.clearSelection();
+                setState(() => _step = 2);
+              }),
             ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _itemPicker(ConsumableDetail item) {
-    final quantity = _quantities[item.id] ?? 0;
-    final inStock = item.availableQuantity > 0;
-
-    if (!inStock) {
-      return Tile(
-        gap: 10,
-        opacity: 0.55,
-        children: [
-          Kv.widget(
-            label: item.name,
-            trailing: const ShTag('Out of stock', tone: TagTone.neutral),
-          ),
-          FNote(item.description ?? 'Staff will restock this item soon.'),
-        ],
-      );
-    }
-
-    return Tile(
-      gap: 10,
-      children: [
-        Kv(item.name, 'Rs. ${item.unitPrice.toStringAsFixed(0)}'),
-        Kv.both(
-          leading: FNote('${item.availableQuantity} in stock'),
-          trailing: CounterControl(
-            value: quantity,
-            max: item.availableQuantity,
-            size: 44,
-            valueFontSize: 17,
-            onChanged: (value) =>
-                setState(() => _quantities[item.id] = value),
           ),
         ),
       ],
@@ -318,9 +305,8 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
 
   /// M-06 "Book a room — step 3": check and send.
   Widget _buildReview() {
-    final selected = _catalogue
-        .where((item) => (_quantities[item.id] ?? 0) > 0)
-        .toList();
+    final consumables = context.watch<ConsumablesProvider?>();
+    final selected = consumables?.selection.entries.toList() ?? const [];
 
     return ScreenBody(
       key: const ValueKey('request-step-3'),
@@ -357,9 +343,12 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
             if (selected.isEmpty)
               const FNote('No items selected')
             else
-              for (final item in selected)
-                Kv('${item.name} × ${_quantities[item.id]}',
-                    'Rs. ${(item.unitPrice * _quantities[item.id]!).toStringAsFixed(0)}'),
+              for (final line in selected)
+                Kv(
+                  '${consumables!.itemFor(line.key)?.name ?? 'Item'} × ${line.value}',
+                  rupees((consumables.itemFor(line.key)?.unitPrice ?? 0) *
+                      line.value),
+                ),
           ],
         ),
         const FNote(

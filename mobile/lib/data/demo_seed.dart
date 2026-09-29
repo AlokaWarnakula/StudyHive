@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../models/consumable.dart';
 import '../models/quotation.dart';
 import '../models/room.dart';
 
@@ -58,39 +57,6 @@ const demoRooms = <RoomDetail>[
           equipmentTypeId: 'projector', name: 'Projector', quantity: 1),
       RoomEquipmentItem(equipmentTypeId: 'tv', name: 'TV', quantity: 1),
     ],
-  ),
-];
-
-const demoConsumables = <ConsumableDetail>[
-  ConsumableDetail(
-    id: '30000000-0000-0000-0000-000000000001',
-    name: 'Whiteboard markers',
-    unit: 'marker',
-    unitPrice: 60,
-    availableQuantity: 42,
-    isActive: true,
-    description: 'Black and blue dry-erase markers.',
-    minStockLevel: 10,
-  ),
-  ConsumableDetail(
-    id: '30000000-0000-0000-0000-000000000002',
-    name: 'A4 printouts',
-    unit: 'page',
-    unitPrice: 5,
-    availableQuantity: 1200,
-    isActive: true,
-    description: 'Black-and-white A4 printing.',
-    minStockLevel: 200,
-  ),
-  ConsumableDetail(
-    id: '30000000-0000-0000-0000-000000000003',
-    name: 'HDMI cable',
-    unit: 'cable',
-    unitPrice: 0,
-    availableQuantity: 0,
-    isActive: true,
-    description: 'Staff will restock on 26 Aug.',
-    minStockLevel: 2,
   ),
 ];
 

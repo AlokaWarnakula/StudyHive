@@ -1,60 +1,50 @@
 import '../models/consumable.dart';
 import 'api_client.dart';
 
-/// S3 (Consumables & Stock) — student-facing consumables API. SCAFFOLD.
+/// S3 (Consumables & Stock) — student-facing consumables API, typed against
+/// `api/src/StudyHive.Api/Controllers/Store/ConsumablesController.cs` (any signed-in user may read
+/// the catalogue).
 ///
-/// Written and typed against the locked schema (`api/src/StudyHive.Api/Data/Entities/S3/`), but
-/// the endpoints return 501 until S3 implements `api/src/StudyHive.Api/Controllers/Store/`.
-/// Nothing here invents data.
-///
-/// Screens this backs: browse consumables, consumable detail, and the quantity picker.
-///
-/// One thing S3 should know before wiring this up: `select_consumables_screen.dart` is
-/// deliberately not connected to `create_request_screen.dart` yet. S1's create form ships with no
-/// consumable selector on purpose, because there was no real catalogue to select from. Once these
-/// endpoints exist, that screen becomes the picker step the create form links out to — and the
-/// API already accepts the result: `booking_request_items` is validated by S1's
-/// `ValidateItemsOrProblemAsync`, which rejects unknown or duplicated consumable ids as a 422.
+/// Screens this backs: browse consumables, consumable detail, and the quantity picker that the
+/// create-request flow uses. What the picker produces is sent as the request's `items`, which S1's
+/// `ValidateItemsOrProblemAsync` checks (unknown or duplicated consumable ids are a 422).
 class ConsumablesApi {
   final ApiClient _client;
   const ConsumablesApi(this._client);
 
-  /// TODO(S3): GET /api/consumables
+  /// GET /api/consumables — the active catalogue, by name. 100 is the API's page-size cap, well
+  /// above the size of a study-room store.
   Future<List<ConsumableListItem>> list({String? search}) async {
-    final query = <String, String>{
+    final uri = Uri(path: '/api/consumables', queryParameters: {
       'pageSize': '100',
-      if (search != null && search.isNotEmpty) 'search': search,
-    };
-    final qs = query.entries.map((e) => '${e.key}=${e.value}').join('&');
-    final response = await _client.get('/api/consumables?$qs') as Map<String, dynamic>;
+      'sortBy': 'name',
+      'sortDir': 'asc',
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+    });
+    final response = await _client.get(uri.toString()) as Map<String, dynamic>;
     final items = response['items'] as List<dynamic>;
     return items
-        .map((e) => _listItemFromJson(e as Map<String, dynamic>))
+        .map((e) => _detailFromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  /// TODO(S3): GET /api/consumables/{id}
+  /// GET /api/consumables/{id} — `ConsumableDetailResponse`: `{ consumable, recentTransactions }`.
+  /// The ledger is staff business, so only the consumable is read here.
   Future<ConsumableDetail> getById(String id) async {
-    final json = await _client.get('/api/consumables/$id') as Map<String, dynamic>;
-    return ConsumableDetail(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      unit: json['unit'] as String,
-      unitPrice: (json['unitPrice'] as num).toDouble(),
-      availableQuantity: json['availableQuantity'] as int,
-      isActive: json['isActive'] as bool,
-      description: json['description'] as String?,
-      minStockLevel: json['minStockLevel'] as int,
-    );
+    final json = await _client.get('/api/consumables/${Uri.encodeComponent(id)}')
+        as Map<String, dynamic>;
+    return _detailFromJson(json['consumable'] as Map<String, dynamic>);
   }
 
-  static ConsumableListItem _listItemFromJson(Map<String, dynamic> json) =>
-      ConsumableListItem(
+  static ConsumableDetail _detailFromJson(Map<String, dynamic> json) =>
+      ConsumableDetail(
         id: json['id'] as String,
         name: json['name'] as String,
         unit: json['unit'] as String,
         unitPrice: (json['unitPrice'] as num).toDouble(),
         availableQuantity: json['availableQuantity'] as int,
+        minStockLevel: json['minStockLevel'] as int,
         isActive: json['isActive'] as bool,
+        description: json['description'] as String?,
       );
 }

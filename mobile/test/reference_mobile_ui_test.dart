@@ -15,6 +15,8 @@ import 'package:mobile/state/auth_provider.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:mobile/widgets/studyhive_ui.dart';
 
+import 'support/consumables.dart';
+
 import 'support/finders.dart';
 
 /// Each frame of UI/StudyHive Mobile UI (offline).html, checked for the parts
@@ -54,7 +56,10 @@ void main() {
   testWidgets('M-04 through M-06 form a three-step booking flow',
       (tester) async {
     useReferenceFrame(tester);
-    await tester.pumpWidget(host(const CreateRequestScreen()));
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: consumablesProviderFor(),
+      child: host(const CreateRequestScreen()),
+    ));
 
     expect(find.text('STEP 1 OF 3 · WHAT AND WHEN'), findsOneWidget);
     expect(find.byType(StepperBar), findsOneWidget);
@@ -65,6 +70,7 @@ void main() {
     expect(find.text('STEP 2 OF 3 · OPTIONAL'), findsOneWidget);
     expect(find.text('Whiteboard markers'), findsOneWidget);
     expect(find.text('Out of stock'), findsOneWidget);
+    expect(find.text('Search all items'), findsOneWidget);
     expect(find.text('Items subtotal'), findsOneWidget);
     expect(find.text('Skip, I need no items'), findsOneWidget);
     await tapAndSettle(tester, find.text('Next: review'));

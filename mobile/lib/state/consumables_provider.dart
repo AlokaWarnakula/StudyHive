@@ -1,22 +1,15 @@
 import 'package:flutter/foundation.dart';
 
 import '../api/consumables_api.dart';
+import '../models/booking_request.dart';
 import '../models/consumable.dart';
 
-/// S3 (Consumables & Stock) state for the student app. SCAFFOLD.
+/// S3 (Consumables & Stock) state for the student app. Mirrors `BookingRequestsProvider`, and is
+/// registered in `main.dart`'s MultiProvider on `authProvider.apiClient`.
 ///
-/// Mirrors `BookingRequestsProvider`, the working S1 reference. Every call currently lands on a
-/// 501 until S3 builds the endpoints, so [error] is set and [items] stays empty — the screens
-/// show their real error state rather than pretending.
-///
-/// S3, to bring this to life:
-///   1. Implement `api/src/StudyHive.Api/Controllers/Store/ConsumablesController.cs`.
-///   2. Register this provider in `main.dart`'s MultiProvider, sharing `authProvider.apiClient`.
-///   3. Point the browse / detail / select screens at it.
-///
-/// [selection] is the quantity picker's state. It is kept here rather than in the screen so that
-/// the picker survives navigation between the catalogue and the booking form — which is what
-/// happens once `select_consumables_screen.dart` is wired into the create flow.
+/// [selection] is the quantity picker's state. It lives here rather than in a screen so the
+/// picks survive moving between the create-request flow and the full-screen picker
+/// (`select_consumables_screen.dart`), and `CreateRequestScreen` sends it as the request's items.
 class ConsumablesProvider extends ChangeNotifier {
   final ConsumablesApi _api;
   ConsumablesProvider(this._api);
@@ -26,6 +19,10 @@ class ConsumablesProvider extends ChangeNotifier {
   List<ConsumableListItem> _items = [];
   ConsumableDetail? _selected;
   final Map<String, int> _selection = {};
+
+  /// Every item seen by any list call, so a pick made under one search can still be named and
+  /// priced after the list is filtered differently.
+  final Map<String, ConsumableListItem> _known = {};
   bool _loading = false;
   String? _error;
 
@@ -37,15 +34,33 @@ class ConsumablesProvider extends ChangeNotifier {
   /// consumableId -> quantity, for the booking request's items.
   Map<String, int> get selection => Map.unmodifiable(_selection);
 
+  ConsumableListItem? itemFor(String id) => _known[id];
+
+  /// The picks as the request payload: one line per consumable, quantity > 0.
+  List<BookingRequestItem> get selectedItems => [
+        for (final entry in _selection.entries)
+          BookingRequestItem(consumableId: entry.key, quantity: entry.value),
+      ];
+
+  double get selectionTotal => _selection.entries.fold(
+        0,
+        (total, entry) => total + (_known[entry.key]?.unitPrice ?? 0) * entry.value,
+      );
+
   Future<void> refresh({String? search}) async {
     await _run(() async {
       _items = await _api.list(search: search);
+      for (final item in _items) {
+        _known[item.id] = item;
+      }
     });
   }
 
   Future<void> select(String id) async {
+    _selected = null;
     await _run(() async {
       _selected = await _api.getById(id);
+      _known[id] = _selected!;
     });
   }
 
@@ -62,6 +77,7 @@ class ConsumablesProvider extends ChangeNotifier {
   }
 
   void clearSelection() {
+    if (_selection.isEmpty) return;
     _selection.clear();
     notifyListeners();
   }
