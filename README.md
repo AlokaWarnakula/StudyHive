@@ -30,7 +30,7 @@ allowed to reach PostgreSQL, the agent service, and Brevo (email).
 | Web state | Zustand |
 | Mobile state | Provider |
 | Agent framework | LangGraph (FastAPI host) |
-| LLM | Groq `llama-3.3-70b` (Gemini Flash failover) |
+| LLM | xAI Grok (`grok-4.20-0309-non-reasoning` by default) through one OpenAI-compatible seam, `agent/app/llm.py` — optional; every agent has a deterministic fallback |
 | Database | PostgreSQL (local: Docker; hosted: Neon) |
 | Background jobs | `IHostedService` + `Channel<T>` — no Redis, no Hangfire |
 
@@ -101,14 +101,20 @@ python -m venv .venv
 so the placeholder `INTERNAL_API_KEY` works locally. Outside Development, a missing or still-placeholder
 key refuses to start; see `agent/app/settings.py`.
 
-`GEMINI_API_KEY` is optional and left blank in `.env.example`. Blank (the default) keeps the Planner
-fully deterministic — one Google AI Studio key is enough for the whole service, it authenticates the
-project rather than any one agent. Set a real key to also have it ask Gemini for a short display
-summary of the student's objective — see `summarize_objective()` in `agent/app/agents/planner.py` for
-exactly what that call can and cannot influence, and why any failure or timeout falls back to no
-summary rather than an error. `GEMINI_MODEL` is a second optional override (defaults to
-`DEFAULT_GEMINI_MODEL` in `agent/app/settings.py`) for whichever Gemini Flash model id your account
-currently has access to.
+The LLM is xAI Grok, configured in `agent/.env` (see `agent/.env.example`; never commit a real key):
+
+- `GROK_API_KEY` — optional and blank by default. Blank keeps every agent fully deterministic, which
+  is also what the whole test suite uses. With a key set, the Planner asks Grok for a one-line display
+  summary of the student's objective — see `summarize_objective()` in `agent/app/agents/planner.py`
+  for exactly what that call can and cannot influence.
+- `GROK_BASE_URL` — the OpenAI-compatible endpoint, `https://api.x.ai/v1` by default.
+- `GROK_MODEL` — blank means `DEFAULT_GROK_MODEL` in `agent/app/settings.py`
+  (`grok-4.20-0309-non-reasoning`); `GET {GROK_BASE_URL}/models` with your key lists what your account
+  can use.
+
+Every call goes through the single seam `chat(instructions, data)` in `agent/app/llm.py`: untrusted
+text travels as data, never inside the instructions, and any missing key, failure or timeout returns
+`None` so the caller falls back to its deterministic result rather than an error.
 
 Health at `http://localhost:8001/health`. Run tests: `pytest` from `agent/` (with the venv active).
 
@@ -172,9 +178,9 @@ the full ownership table and handoff gates.
   half-updated.
 - **Agent**: `POST /planner/plan` (`agent/app/agents/planner.py`) — deterministic: the plan shape,
   agents/actions, and eligibility never come from a model, and `objective` free text can never
-  re-derive eligibility (the prompt-injection defence DOCS §11 asks for). If `GEMINI_API_KEY` is
-  configured, an optional Gemini call additionally summarizes `objective` for step 1's params —
-  bounded, validated, and non-authoritative; unset (the default) skips it entirely. Covered by
+  re-derive eligibility (the prompt-injection defence DOCS §11 asks for). If `GROK_API_KEY` is
+  configured, an optional Grok call (via `agent/app/llm.py`) additionally summarizes `objective` for
+  step 1's params — bounded, validated, and non-authoritative; unset (the default) skips it entirely. Covered by
   `agent/tests/test_planner.py`.
 - **Web** (staff): Booking Requests list (search/filter/sort/paginate) and detail with a live status
   timeline; Student Profiles list and detail.
@@ -182,9 +188,9 @@ the full ownership table and handoff gates.
   three-step request creation, workflow progress, room browsing/detail/schedule, quotation/history,
   QR check-in, checked-in success, booking detail and profile. Authentication, profile and requests
   use real APIs. Not-yet-owned S2-S4 screens use typed preview data only in Debug builds.
-- **Tests**: `api/tests/StudyHive.Api.Tests/{StudentProfilesControllerTests,BookingRequestsControllerTests}.cs`
-  (54/54 passing against a real Postgres, including registration/profile atomicity, concurrent
-  idempotent seeding and workflow success/reject/unreachable paths via a fake Planner client),
-  `agent/` (27/27 — includes the Gemini summary path, all monkeypatched, no
-  network; `agent/tests/conftest.py` forces this regardless of any real key in a developer's local
-  `.env`), and `mobile` (19/19).
+- **Tests**: S1's `api/tests/StudyHive.Api.Tests/{StudentProfilesControllerTests,BookingRequestsControllerTests}.cs`
+  run against a real Postgres and cover registration/profile atomicity, concurrent idempotent
+  seeding and workflow success/reject/unreachable paths via a fake Planner client. The `agent/`
+  suite includes the Grok summary path, all monkeypatched with no network
+  (`agent/tests/conftest.py` forces this regardless of any real key in a developer's local `.env`).
+  Current totals for every suite (API, agent, web, mobile) are kept in one place: `PLAN.md` §1.

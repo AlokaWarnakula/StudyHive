@@ -1,16 +1,19 @@
 /// S3 (Consumables & Stock) view models — the mobile half of the contract in
-/// web/src/api/consumables.ts, over the locked schema
-/// (api/src/StudyHive.Api/Data/Entities/S3/*.cs).
+/// web/src/api/consumables.ts, over `ConsumableResponse` in
+/// api/src/StudyHive.Api/Controllers/Store/StoreContracts.cs.
 ///
-/// Paired with lib/api/consumables_api.dart and lib/state/consumables_provider.dart, which exist
-/// as scaffolds: the calls are written but the endpoints behind them return 501 until S3
-/// implements api/src/StudyHive.Api/Controllers/Store/.
+/// Paired with lib/api/consumables_api.dart and lib/state/consumables_provider.dart.
+enum StockStatus { inStock, low, outOfStock }
+
 class ConsumableListItem {
   final String id;
   final String name;
   final String unit;
   final double unitPrice;
+
+  /// On-hand stock less what is already reserved — what a student can still ask for.
   final int availableQuantity;
+  final int minStockLevel;
   final bool isActive;
 
   const ConsumableListItem({
@@ -19,13 +22,25 @@ class ConsumableListItem {
     required this.unit,
     required this.unitPrice,
     required this.availableQuantity,
+    required this.minStockLevel,
     required this.isActive,
   });
+
+  StockStatus get stockStatus {
+    if (availableQuantity <= 0) return StockStatus.outOfStock;
+    if (availableQuantity <= minStockLevel) return StockStatus.low;
+    return StockStatus.inStock;
+  }
+
+  String get stockLabel => switch (stockStatus) {
+        StockStatus.inStock => 'In stock',
+        StockStatus.low => 'Low stock',
+        StockStatus.outOfStock => 'Out of stock',
+      };
 }
 
 class ConsumableDetail extends ConsumableListItem {
   final String? description;
-  final int minStockLevel;
 
   const ConsumableDetail({
     required super.id,
@@ -33,8 +48,8 @@ class ConsumableDetail extends ConsumableListItem {
     required super.unit,
     required super.unitPrice,
     required super.availableQuantity,
+    required super.minStockLevel,
     required super.isActive,
     required this.description,
-    required this.minStockLevel,
   });
 }

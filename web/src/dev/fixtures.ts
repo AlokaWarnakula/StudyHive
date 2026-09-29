@@ -116,60 +116,6 @@ export interface CalendarEntry {
   kind: "approved" | "pending" | "maintenance";
 }
 
-/* ── S3 · consumables, reservations, suppliers ────────────────────────────── */
-
-export interface ConsumableRow {
-  name: string;
-  code: string;
-  unitPrice: string;
-  inStock: string;
-  reserved: string;
-  free: string;
-  reorderAt: string;
-  status: StatusTag;
-}
-
-export interface LedgerRow {
-  when: string;
-  type: StatusTag;
-  qty: string;
-  balance: string;
-  reference: string;
-  by: string;
-}
-
-export interface LowStockRow {
-  name: string;
-  code: string;
-  inStock: string;
-  reorderAt: string;
-  shortfall: string;
-  suggested: string;
-  supplier: string;
-  leadTime: string;
-  urgent: boolean;
-}
-
-export interface ReservationRow {
-  id: string;
-  request: string;
-  student: string;
-  item: string;
-  qty: number;
-  heldUntil: string;
-  status: StatusTag;
-  action: "view" | "issue";
-}
-
-export interface SupplierRow {
-  name: string;
-  contact: string;
-  phone: string;
-  items: number;
-  leadTime: string;
-  status: StatusTag;
-}
-
 /* ── admin ────────────────────────────────────────────────────────────────── */
 
 export interface UserRow {
@@ -685,114 +631,6 @@ export const fixtures = {
     hourLabels: ["8", "10", "12", "2", "4", "6", "8 PM"],
   },
 
-  /** W-19 Consumables. */
-  consumables: [
-    { name: "HDMI cable", code: "CN-11", unitPrice: "Rs. 350", inStock: "0", reserved: "0", free: "0", reorderAt: "5", status: outline("Out of stock") },
-    { name: "Whiteboard eraser", code: "CN-07", unitPrice: "Rs. 120", inStock: "4", reserved: "2", free: "2", reorderAt: "10", status: outline("Low") },
-    { name: "Flip chart paper", code: "CN-09", unitPrice: "Rs. 90", inStock: "8", reserved: "0", free: "8", reorderAt: "15", status: outline("Low") },
-    { name: "Whiteboard markers", code: "CN-04", unitPrice: "Rs. 60", inStock: "42", reserved: "6", free: "36", reorderAt: "20", status: accent("Healthy") },
-    { name: "A4 printouts", code: "CN-01", unitPrice: "Rs. 5", inStock: "1,200", reserved: "120", free: "1,080", reorderAt: "300", status: accent("Healthy") },
-    { name: "Sticky notes", code: "CN-15", unitPrice: "Rs. 200", inStock: "26", reserved: "4", free: "22", reorderAt: "10", status: accent("Healthy") },
-  ] satisfies ConsumableRow[],
-
-  /** W-20 Consumable detail + ledger. */
-  consumableDetail: {
-    name: "Whiteboard markers",
-    code: "CN-04",
-    facts: [
-      { label: "Code", value: "CN-04" },
-      { label: "Unit price", value: "Rs. 60" },
-      { label: "In stock", value: "42" },
-      { label: "Reserved", value: "6" },
-      { label: "Free to reserve", value: "36" },
-      { label: "Reorder level", value: "20" },
-      { label: "Supplier", value: "Lanka Stationers" },
-    ],
-    status: accent("Healthy"),
-    stockPercent: 70,
-    stockNote: "42 of 60 shelf capacity · reorder at 20",
-    ledgerTotal: "88",
-    ledger: [
-      { when: "Today 9:13 AM", type: outline("Reserved"), qty: "−2", balance: "36 free", reference: "REQ-1042", by: "resource-agent" },
-      { when: "Today 8:58 AM", type: accent("Stock in"), qty: "+24", balance: "42", reference: "PO-2211", by: "R. Costa" },
-      { when: "Yesterday 5:20 PM", type: neutral("Issued"), qty: "−4", balance: "18", reference: "REQ-1031", by: "R. Costa" },
-      { when: "Yesterday 2:02 PM", type: outline("Reserved"), qty: "−4", balance: "22 free", reference: "REQ-1031", by: "resource-agent" },
-      { when: "22 Aug", type: neutral("Released"), qty: "+2", balance: "26", reference: "REQ-1029 rejected", by: "system" },
-      { when: "21 Aug", type: neutral("Issued"), qty: "−6", balance: "24", reference: "REQ-1025", by: "R. Costa" },
-    ] satisfies LedgerRow[],
-  },
-
-  /** W-21 Low stock. */
-  lowStock: {
-    metrics: [
-      { label: "Out of stock", value: "1", note: "HDMI cable · 2 requests waiting", highlight: true },
-      { label: "Below reorder level", value: "2", note: "Eraser, flip chart paper", highlight: false },
-      { label: "Value to reorder", value: "Rs. 6,150", note: "Across 2 suppliers", highlight: false },
-    ],
-    rows: [
-      { name: "HDMI cable", code: "CN-11", inStock: "0", reorderAt: "5", shortfall: "5", suggested: "10 units · Rs. 3,500", supplier: "TechLine Colombo", leadTime: "3 days", urgent: true },
-      { name: "Whiteboard eraser", code: "CN-07", inStock: "4", reorderAt: "10", shortfall: "6", suggested: "12 units · Rs. 1,440", supplier: "Lanka Stationers", leadTime: "1 day", urgent: false },
-      { name: "Flip chart paper", code: "CN-09", inStock: "8", reorderAt: "15", shortfall: "7", suggested: "15 units · Rs. 1,350", supplier: "Lanka Stationers", leadTime: "1 day", urgent: false },
-    ] satisfies LowStockRow[],
-    blocked: [
-      "REQ-1043 · P. Kumara · needs 1 HDMI cable",
-      "REQ-1044 · S. Dias · needs 2 HDMI cables",
-    ],
-  },
-
-  /** W-22 Stock reservations. */
-  reservations: {
-    open: "14",
-    counts: [accent("Held 4"), outline("Confirmed 6"), outline("Issued 3"), outline("Released 1")],
-    rows: [
-      { id: "SR-0881", request: "REQ-1042", student: "N. Perera", item: "Whiteboard markers", qty: 2, heldUntil: "Today 9:43 AM", status: accent("Held"), action: "view" },
-      { id: "SR-0882", request: "REQ-1042", student: "N. Perera", item: "A4 printouts", qty: 20, heldUntil: "Today 9:43 AM", status: accent("Held"), action: "view" },
-      { id: "SR-0879", request: "REQ-1039", student: "M. Rathnayake", item: "Sticky notes", qty: 4, heldUntil: "—", status: outline("Confirmed"), action: "issue" },
-      { id: "SR-0877", request: "REQ-1038", student: "T. Weeraman", item: "A4 printouts", qty: 100, heldUntil: "—", status: outline("Confirmed"), action: "issue" },
-      { id: "SR-0870", request: "REQ-1031", student: "A. Silva", item: "Whiteboard markers", qty: 4, heldUntil: "—", status: neutral("Issued"), action: "view" },
-      { id: "SR-0866", request: "REQ-1029", student: "D. Anuradha", item: "Whiteboard markers", qty: 2, heldUntil: "—", status: neutral("Released"), action: "view" },
-    ] satisfies ReservationRow[],
-  },
-
-  /** W-23 Suppliers. */
-  suppliers: {
-    total: "5",
-    rows: [
-      { name: "Lanka Stationers", contact: "K. Bandara", phone: "011 234 5678", items: 12, leadTime: "1 day", status: accent("Active") },
-      { name: "TechLine Colombo", contact: "S. Nawaz", phone: "011 987 6543", items: 6, leadTime: "3 days", status: accent("Active") },
-      { name: "Paper World", contact: "M. Gunasekara", phone: "011 445 1122", items: 3, leadTime: "2 days", status: accent("Active") },
-      { name: "Office Plus", contact: "R. Fonseka", phone: "011 332 8899", items: 2, leadTime: "5 days", status: neutral("Inactive") },
-    ] satisfies SupplierRow[],
-    selectedItems: [
-      { name: "Whiteboard markers", price: "Rs. 58" },
-      { name: "Whiteboard eraser", price: "Rs. 120" },
-      { name: "Flip chart paper", price: "Rs. 90" },
-      { name: "Sticky notes", price: "Rs. 200" },
-    ],
-    selectedEmail: "orders@lankastationers.lk",
-  },
-
-  /** W-24 Consumable usage report. */
-  consumableUsage: {
-    metrics: [
-      { label: "Items issued", value: "2,410", note: "", highlight: false },
-      { label: "Cost of items", value: "Rs. 24,180", note: "", highlight: false },
-      { label: "Released unused", value: "86", note: "rejected or cancelled", highlight: false },
-      { label: "Times out of stock", value: "4", note: "", highlight: false },
-    ],
-    byItem: [
-      { item: "A4 printouts", issued: "1,840", cost: "Rs. 9,200", reservedNow: "120", outOfStock: "0 times" },
-      { item: "Whiteboard markers", issued: "288", cost: "Rs. 17,280", reservedNow: "6", outOfStock: "1 time" },
-      { item: "Sticky notes", issued: "112", cost: "Rs. 22,400", reservedNow: "4", outOfStock: "0 times" },
-      { item: "Flip chart paper", issued: "96", cost: "Rs. 8,640", reservedNow: "0", outOfStock: "2 times" },
-      { item: "HDMI cable", issued: "44", cost: "Rs. 15,400", reservedNow: "0", outOfStock: "4 times" },
-    ],
-    perWeek: [44, 62, 88, 57],
-    perWeekPeakIndex: 2,
-    busiestDay: "Wednesday",
-    averagePerBooking: "17 items",
-  },
-
   /** W-25 Users & roles. */
   users: {
     metrics: [
@@ -872,8 +710,6 @@ export const fixtures = {
     buildings: ["New wing", "Main library"],
     equipmentTypes: ["All", "Projector", "Display", "Writing", "Audio", "Comfort"],
     equipmentRooms: ["All", "B-204", "B-118", "C-301", "Unassigned"],
-    suppliers: ["All", "Lanka Stationers", "TechLine Colombo", "Paper World"],
-    consumableItems: ["All", "Whiteboard markers", "A4 printouts", "Sticky notes"],
     auditUsers: ["All", "S. Fernando", "R. Costa", "system"],
     auditEntities: ["All", "booking_request", "quotation", "stock_reservation", "user"],
     auditRange: "18 Aug – 24 Aug",
@@ -882,14 +718,6 @@ export const fixtures = {
 
   forms: {
     newRoom: { code: "C-402", seats: "8", floor: "4", rate: "200" },
-    stockIn: {
-      quantity: "24",
-      unitCost: "58",
-      purchaseOrder: "PO-2211",
-      suppliers: ["Lanka Stationers", "Paper World"],
-      /** Balance before this stock-in, so the dialog can show a live "new balance". */
-      balanceBefore: 18,
-    },
     maintenanceWindow: {
       rooms: ["C-301 — New wing, floor 3", "B-204 — Main library, floor 2"],
       reason: "Air conditioning repair",

@@ -17,6 +17,8 @@ import 'package:mobile/state/booking_requests_provider.dart';
 import 'package:mobile/state/profile_provider.dart';
 import 'package:mobile/state/token_store.dart';
 
+import 'support/consumables.dart';
+
 class InMemoryTokenStore implements TokenStore {
   final Map<String, String> _values = {};
   @override
@@ -66,6 +68,7 @@ void main() {
           ChangeNotifierProvider(
               create: (_) => BookingRequestsProvider(
                   BookingRequestsApi(authProvider.apiClient))),
+          ChangeNotifierProvider(create: (_) => consumablesProviderFor()),
         ],
         child: const MaterialApp(home: Scaffold(body: ProfileScreen())),
       ),
@@ -87,5 +90,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(BrowseConsumablesScreen), findsOneWidget);
+    expect(find.text('Whiteboard markers'), findsOneWidget);
   });
 }

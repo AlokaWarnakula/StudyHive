@@ -11,7 +11,6 @@ export function ReportTabs() {
   const tabs = [
     { to: "/reports", label: "Bookings by status", end: true },
     { to: "/reports/rooms", label: "Room use" },
-    { to: "/reports/consumables", label: "Consumable use" },
   ];
   return (
     <div className="bar">

@@ -73,11 +73,11 @@ describe("App routing", () => {
     ["W-17", "/maintenance", "Librarian", "Maintenance"],
     ["W-18", "/reports/rooms", "Librarian", "Room utilisation"],
     ["W-19", "/consumables", "StoreOfficer", "Consumables"],
-    ["W-20", "/consumables/CN-04", "StoreOfficer", "Whiteboard markers"],
+    ["W-20", "/consumables/CN-04", "StoreOfficer", "Consumable"],
     ["W-21", "/consumables/low-stock", "StoreOfficer", "Low stock"],
     ["W-22", "/reservations", "StoreOfficer", "Stock reservations"],
     ["W-23", "/suppliers", "StoreOfficer", "Suppliers"],
-    ["W-24", "/reports/consumables", "Librarian", "Consumable usage"],
+    ["W-24", "/reports/consumables", "StoreOfficer", "Consumable usage"],
     ["W-25", "/users", "Admin", "Users"],
     ["W-26", "/settings", "Admin", "Settings"],
   ];

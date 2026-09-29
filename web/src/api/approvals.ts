@@ -183,7 +183,4 @@ export function getRoomUsageReport(token: string, from: string, to: string): Pro
   return apiFetch(`/api/reports/room-usage${buildQuery({ from, to })}`, { token });
 }
 
-// TODO(S3): implement GET /api/reports/consumable-usage
-export function getConsumableUsageReport(token: string, from: string, to: string): Promise<unknown> {
-  return apiFetch(`/api/reports/consumable-usage${buildQuery({ from, to })}`, { token });
-}
+// GET /api/reports/consumable-usage is S3's and typed in ./consumables.ts (getConsumableUsageReport).

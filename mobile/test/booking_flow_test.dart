@@ -8,15 +8,18 @@ import 'package:provider/provider.dart';
 
 import 'package:mobile/api/api_client.dart';
 import 'package:mobile/api/booking_requests_api.dart';
+import 'package:mobile/api/consumables_api.dart';
 import 'package:mobile/api/rooms_api.dart';
 import 'package:mobile/api/student_profiles_api.dart';
 import 'package:mobile/app.dart';
 import 'package:mobile/state/auth_provider.dart';
 import 'package:mobile/state/booking_requests_provider.dart';
+import 'package:mobile/state/consumables_provider.dart';
 import 'package:mobile/state/profile_provider.dart';
 import 'package:mobile/state/rooms_provider.dart';
 import 'package:mobile/state/token_store.dart';
 
+import 'support/consumables.dart';
 import 'support/finders.dart';
 
 class InMemoryTokenStore implements TokenStore {
@@ -86,6 +89,9 @@ Future<void> _pumpApp(WidgetTester tester, AuthProvider authProvider) async {
                 BookingRequestsApi(authProvider.apiClient))),
         ChangeNotifierProvider(
             create: (_) => RoomsProvider(RoomsApi(authProvider.apiClient))),
+        ChangeNotifierProvider(
+            create: (_) =>
+                ConsumablesProvider(ConsumablesApi(authProvider.apiClient))),
       ],
       child: const StudyHiveApp(),
     ),
@@ -149,7 +155,10 @@ void main() {
       'creating and submitting a request shows a confirmation and it appears in Track',
       (tester) async {
     var submitted = false;
+    Map<String, dynamic>? createBody;
     final mockClient = MockClient((request) async {
+      final consumables = consumablesRoute(request);
+      if (consumables != null) return consumables;
       if (request.url.path == '/api/auth/login') {
         return _json({
           'accessToken': 'access-token',
@@ -168,6 +177,7 @@ void main() {
       }
       if (request.url.path == '/api/booking-requests' &&
           request.method == 'POST') {
+        createBody = jsonDecode(request.body) as Map<String, dynamic>;
         return _json(_bookingJson, 201);
       }
       if (request.url.path == '/api/booking-requests/req-1/submit') {
@@ -197,12 +207,26 @@ void main() {
     await tester.enterText(field('Budget (Rs.)'), '50');
     await tapAndSettle(
         tester, find.widgetWithText(FilledButton, 'Next: add items'));
+
+    // Step 2 is the live catalogue: pick two markers.
+    final plus = find.descendant(
+        of: find.byKey(const ValueKey('pick:c-markers')),
+        matching: find.text('+'));
+    await tapAndSettle(tester, plus);
+    await tapAndSettle(tester, plus);
+    expect(find.text('Rs. 120'), findsOneWidget);
+
     await tapAndSettle(
         tester, find.widgetWithText(FilledButton, 'Next: review'));
+    expect(find.text('Whiteboard markers × 2'), findsOneWidget);
     await tapAndSettle(
         tester, find.widgetWithText(FilledButton, 'Send request'));
 
     expect(submitted, isTrue);
+    // The picks travel as booking_request_items.
+    expect(createBody!['items'], [
+      {'consumableId': 'c-markers', 'quantity': 2}
+    ]);
     expect(find.text('Working on it'), findsOneWidget);
 
     await tapAndSettle(

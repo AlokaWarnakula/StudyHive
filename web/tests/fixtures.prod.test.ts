@@ -39,10 +39,7 @@ describe("production bundle", () => {
     const fixtureOnlyStrings = [
       "Thesis writing", // dashboard queue + approvals
       "Rathnayake", // student names
-      "resource-agent", // consumable ledger
       "WF-2291", // workflow ids
-      "Lanka Stationers", // suppliers
-      "PO-2211", // stock-in form
       "B-204", // room codes
       "no-reply@studyhive.lk", // settings
     ];

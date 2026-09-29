@@ -5,7 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # history) knows this value, so it must never authenticate a real deployment.
 PLACEHOLDER_INTERNAL_API_KEY = "dev-only-internal-key-DO-NOT-USE-IN-PRODUCTION"
 
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+# The cheapest chat model `GET https://api.x.ai/v1/models` listed for this project's key on
+# 2026-09-29 (no "mini" tier offered). Non-reasoning, so max_tokens isn't spent on hidden reasoning.
+DEFAULT_GROK_MODEL = "grok-4.20-0309-non-reasoning"
+DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1"
 
 
 class Settings(BaseSettings):
@@ -22,11 +25,13 @@ class Settings(BaseSettings):
     environment: str = "production"
 
     groq_api_key: str = ""
-    gemini_api_key: str = ""
-    # Lets whoever holds the key point at whichever Gemini Flash model their Google AI Studio
-    # account currently has access to, without a code change — model availability/naming changes
-    # faster than this file does.
-    gemini_model: str = DEFAULT_GEMINI_MODEL
+    # Blank == LLM disabled: every agent stays fully deterministic (the default for local dev and
+    # every test). See app/llm.py for the one call that reads these.
+    grok_api_key: str = ""
+    grok_base_url: str = DEFAULT_GROK_BASE_URL
+    # Lets whoever holds the key switch to whichever Grok model their xAI console currently offers,
+    # without a code change — model availability/naming changes faster than this file does.
+    grok_model: str = DEFAULT_GROK_MODEL
     internal_api_key: str = PLACEHOLDER_INTERNAL_API_KEY
 
     # Mirrors api/appsettings.json WorkflowLimits — see DOCS Master Plan sec. 11.
@@ -36,14 +41,18 @@ class Settings(BaseSettings):
     max_retries_per_step: int = 2
     max_llm_tokens_per_run: int = 8000
 
-    @field_validator("gemini_model", mode="before")
+    @field_validator("grok_model", mode="before")
     @classmethod
-    def _blank_gemini_model_means_use_the_default(cls, v: str | None) -> str:
-        # Unlike GROQ_API_KEY/GEMINI_API_KEY (blank == intentionally disabled), an empty
-        # GEMINI_MODEL isn't a valid model id — .env.example ships this line blank so copying it
-        # verbatim must still resolve to DEFAULT_GEMINI_MODEL, not an empty string that breaks
-        # every Gemini call once a key is configured.
-        return v or DEFAULT_GEMINI_MODEL
+    def _blank_grok_model_means_use_the_default(cls, v: str | None) -> str:
+        # Unlike GROK_API_KEY (blank == intentionally disabled), an empty GROK_MODEL isn't a valid
+        # model id — .env.example ships this line blank so copying it verbatim must still resolve
+        # to DEFAULT_GROK_MODEL, not an empty string that breaks every Grok call once a key is set.
+        return v or DEFAULT_GROK_MODEL
+
+    @field_validator("grok_base_url", mode="before")
+    @classmethod
+    def _blank_grok_base_url_means_use_the_default(cls, v: str | None) -> str:
+        return v or DEFAULT_GROK_BASE_URL
 
     @model_validator(mode="after")
     def _require_a_real_internal_api_key_outside_development(self) -> "Settings":

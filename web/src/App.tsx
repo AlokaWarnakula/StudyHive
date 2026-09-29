@@ -76,7 +76,8 @@ export function App() {
         {/* W-09, W-18, W-24 — the three reports share one tab strip */}
         <Route path="/reports" element={<ProtectedRoute allow={S4_ROLES}><ReportsPage /></ProtectedRoute>} />
         <Route path="/reports/rooms" element={<ProtectedRoute allow={S2_ROLES}><RoomUtilisationPage /></ProtectedRoute>} />
-        <Route path="/reports/consumables" element={<ProtectedRoute allow={S4_ROLES}><ConsumableUsagePage /></ProtectedRoute>} />
+        {/* W-24 is S3's report and the API serves it to StoreOfficer only. */}
+        <Route path="/reports/consumables" element={<ProtectedRoute allow={["StoreOfficer"]}><ConsumableUsagePage /></ProtectedRoute>} />
 
         {/* W-10 … W-12 — S1, the screens backed by real endpoints today */}
         <Route path="/requests" element={<ProtectedRoute allow={S1_ROLES}><RequestsPage /></ProtectedRoute>} />

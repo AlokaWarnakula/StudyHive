@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.settings import DEFAULT_GEMINI_MODEL, PLACEHOLDER_INTERNAL_API_KEY, Settings
+from app.settings import DEFAULT_GROK_BASE_URL, DEFAULT_GROK_MODEL, PLACEHOLDER_INTERNAL_API_KEY, Settings
 
 
 def test_placeholder_key_outside_development_fails_to_start() -> None:
@@ -32,22 +32,30 @@ def test_nothing_configured_at_all_fails_to_start() -> None:
         Settings(_env_file=None)
 
 
-def test_gemini_model_defaults_when_unset() -> None:
-    s = Settings(environment="development", internal_api_key=PLACEHOLDER_INTERNAL_API_KEY)
-    assert s.gemini_model == DEFAULT_GEMINI_MODEL
+def test_grok_settings_default_when_unset() -> None:
+    s = Settings(_env_file=None, environment="development", internal_api_key=PLACEHOLDER_INTERNAL_API_KEY)
+    assert s.grok_api_key == ""
+    assert s.grok_base_url == DEFAULT_GROK_BASE_URL
+    assert s.grok_model == DEFAULT_GROK_MODEL
 
 
-def test_gemini_model_blank_falls_back_to_the_default() -> None:
-    """.env.example ships GEMINI_MODEL blank — copying it verbatim into .env must not turn into an
-    empty model id that breaks every Gemini call once GEMINI_API_KEY is set."""
-    s = Settings(environment="development", internal_api_key=PLACEHOLDER_INTERNAL_API_KEY, gemini_model="")
-    assert s.gemini_model == DEFAULT_GEMINI_MODEL
-
-
-def test_gemini_model_override_is_respected() -> None:
+def test_grok_model_and_base_url_blank_fall_back_to_the_defaults() -> None:
+    """.env.example ships GROK_MODEL blank — copying it verbatim into .env must not turn into an
+    empty model id (or URL) that breaks every Grok call once GROK_API_KEY is set."""
     s = Settings(
         environment="development",
         internal_api_key=PLACEHOLDER_INTERNAL_API_KEY,
-        gemini_model="gemini-2.5-flash",
+        grok_model="",
+        grok_base_url="",
     )
-    assert s.gemini_model == "gemini-2.5-flash"
+    assert s.grok_model == DEFAULT_GROK_MODEL
+    assert s.grok_base_url == DEFAULT_GROK_BASE_URL
+
+
+def test_grok_model_override_is_respected() -> None:
+    s = Settings(
+        environment="development",
+        internal_api_key=PLACEHOLDER_INTERNAL_API_KEY,
+        grok_model="grok-4.3",
+    )
+    assert s.grok_model == "grok-4.3"

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
 import 'package:mobile/screens/consumables/consumable_detail_screen.dart';
 import 'package:mobile/screens/rooms/browse_rooms_screen.dart';
@@ -8,6 +9,8 @@ import 'package:mobile/screens/rooms/room_schedule_screen.dart';
 import 'package:mobile/widgets/shells/detail_shell.dart';
 import 'package:mobile/widgets/shells/list_shell.dart';
 import 'package:mobile/widgets/shells/state_view.dart';
+
+import 'support/consumables.dart';
 
 Future<void> _pump(WidgetTester tester, Widget child) =>
     tester.pumpWidget(MaterialApp(home: child));
@@ -107,14 +110,18 @@ void main() {
   });
 
   group('S3 screen hierarchy', () {
-    testWidgets('Consumable detail previews the add-to-request screen',
+    testWidgets('Consumable detail shows the live item, not a shell',
         (tester) async {
-      await _pump(tester, const ConsumableDetailScreen());
-
-      await tester.tap(find.text('Preview: add to a request →'));
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: consumablesProviderFor(),
+        child: const MaterialApp(
+            home: ConsumableDetailScreen(consumableId: 'c-hdmi')),
+      ));
       await tester.pumpAndSettle();
 
-      expect(find.text('Add consumables'), findsWidgets);
+      expect(find.text('HDMI cable'), findsWidgets);
+      expect(find.text('Out of stock'), findsOneWidget);
+      expect(find.byType(DetailShell), findsNothing);
     });
   });
 }

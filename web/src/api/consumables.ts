@@ -1,19 +1,12 @@
 /**
- * S3 — Consumables & Stock API client. SCAFFOLD.
- *
- * Typed and written; the endpoints behind it return 501 until S3 implements
- * `api/src/StudyHive.Api/Controllers/Store/`. Calling one today throws an `ApiError` with status
- * 501 — the honest answer. Nothing here fabricates data.
+ * S3 — Consumables & Stock API client, typed against `api/src/StudyHive.Api/Controllers/Store/`
+ * (request/response shapes in `StoreContracts.cs`) and `ReportsController.ConsumableUsage`.
  *
  * Screens this backs: W-19 Consumables, W-20 Consumable detail + stock-in, W-21 Low stock,
- * W-22 Stock reservations, W-23 Suppliers; mobile browse/detail/select consumables.
+ * W-22 Stock reservations, W-23 Suppliers, W-24 Consumable usage report.
  *
- * S3, to switch a screen on: replace the page's `useFixture` call with `useState` + `useEffect`
- * against these functions. `web/src/pages/requests/RequestsPage.tsx` is the working reference.
- *
- * The one that carries your marks is `createStockReservation`: the plan requires it to be
- * transactional and to hold under concurrent callers without overselling. That is S3's business
- * operation, and the concurrency test has to genuinely pass.
+ * `createStockReservation` is S3's business operation: the API reserves transactionally and cannot
+ * oversell under concurrent callers (chk_never_oversold — proven in StockReservationsControllerTests).
  */
 
 import { apiFetch } from "./client";
@@ -54,15 +47,19 @@ export interface StockTransaction {
   createdAt: string;
 }
 
-/** W-20: the consumable plus its ledger rows. */
-export interface ConsumableDetail extends Consumable {
-  ledger: StockTransaction[];
+/** W-20: the consumable plus its 20 most recent ledger rows (`ConsumableDetailResponse`). */
+export interface ConsumableDetail {
+  consumable: Consumable;
+  recentTransactions: StockTransaction[];
 }
+
+export type StockReservationStatus = "Pending" | "Reserved" | "Released" | "Used";
 
 export interface StockReservation {
   id: string;
   bookingRequestItemId: string;
   consumableId: string;
+  consumableName: string;
   quantity: number;
   /**
    * These four values are the ones the database will accept — see the CHECK constraint on
@@ -70,7 +67,10 @@ export interface StockReservation {
    * "held → confirmed → issued → released"; that is display wording, not the stored value. Do not
    * "correct" this union to match the screen, and do not add a fifth value without a migration.
    */
-  status: "Pending" | "Reserved" | "Released" | "Used";
+  status: StockReservationStatus;
+  reservedAt: string | null;
+  releasedAt: string | null;
+  usedAt: string | null;
   createdAt: string;
 }
 
@@ -103,18 +103,20 @@ function buildQuery(params: object): string {
   return qs ? `?${qs}` : "";
 }
 
-// TODO(S3): implement GET /api/consumables
-export function listConsumables(token: string, params: ListParams = {}): Promise<PagedResult<Consumable>> {
+/** sortBy: name | unitPrice | stockQuantity | createdAt. `activeOnly` defaults to true on the API. */
+export function listConsumables(
+  token: string,
+  params: ListParams & { activeOnly?: boolean } = {},
+): Promise<PagedResult<Consumable>> {
   return apiFetch(`/api/consumables${buildQuery(params)}`, { token });
 }
 
-// TODO(S3): implement GET /api/consumables/{id}
 export function getConsumable(token: string, id: string): Promise<ConsumableDetail> {
   return apiFetch(`/api/consumables/${id}`, { token });
 }
 
-// TODO(S3): implement GET /api/consumables/low-stock
-export function listLowStock(token: string): Promise<PagedResult<Consumable>> {
+/** Every active item at or below its reorder level — a plain list, not paged. */
+export function listLowStock(token: string): Promise<Consumable[]> {
   return apiFetch(`/api/consumables/low-stock`, { token });
 }
 
@@ -125,69 +127,122 @@ export type ConsumableWriteBody = Pick<
   "name" | "description" | "unit" | "unitPrice" | "minStockLevel"
 >;
 
-// TODO(S3): implement POST /api/consumables
 export function createConsumable(token: string, body: ConsumableWriteBody): Promise<Consumable> {
   return apiFetch(`/api/consumables`, { method: "POST", token, body });
 }
 
-// TODO(S3): implement PUT /api/consumables/{id}
 export function updateConsumable(token: string, id: string, body: ConsumableWriteBody): Promise<Consumable> {
   return apiFetch(`/api/consumables/${id}`, { method: "PUT", token, body });
 }
 
-// TODO(S3): implement DELETE /api/consumables/{id} — deactivation, not a physical delete
+/** Admin only. A deactivation, not a physical delete. */
 export function deactivateConsumable(token: string, id: string): Promise<void> {
   return apiFetch(`/api/consumables/${id}`, { method: "DELETE", token });
 }
 
-/** Business operation: also writes a stock_transactions row, not just a balance change. */
-// TODO(S3): implement POST /api/consumables/{id}/stock-in
-export function stockIn(token: string, id: string, quantity: number, note?: string): Promise<Consumable> {
-  return apiFetch(`/api/consumables/${id}/stock-in`, { method: "POST", token, body: { quantity, note } });
+/** Business operation: also writes a stock_transactions row, not just a balance change. Quantity must be > 0. */
+export function stockIn(token: string, id: string, quantity: number, notes?: string): Promise<Consumable> {
+  return apiFetch(`/api/consumables/${id}/stock-in`, { method: "POST", token, body: { quantity, notes } });
 }
 
-// TODO(S3): implement GET /api/stock-reservations
-export function listStockReservations(token: string, params: ListParams = {}): Promise<PagedResult<StockReservation>> {
+/** sortBy: createdAt | status. `status` must be one of the four stored values. */
+export function listStockReservations(
+  token: string,
+  params: ListParams & { status?: StockReservationStatus } = {},
+): Promise<PagedResult<StockReservation>> {
   return apiFetch(`/api/stock-reservations${buildQuery(params)}`, { token });
 }
 
-/** Must be transactional and must not oversell under concurrent callers. */
-// TODO(S3): implement POST /api/stock-reservations
-export function createStockReservation(
-  token: string,
-  body: { bookingRequestId: string; items: { consumableId: string; quantity: number }[] },
-): Promise<StockReservation[]> {
-  return apiFetch(`/api/stock-reservations`, { method: "POST", token, body });
+/** Reserves one booking-request line. Transactional; 409 when stock is short or it is already reserved. */
+export function createStockReservation(token: string, bookingRequestItemId: string): Promise<StockReservation> {
+  return apiFetch(`/api/stock-reservations`, { method: "POST", token, body: { bookingRequestItemId } });
 }
 
-// TODO(S3): implement PUT /api/stock-reservations/{id}/release
+/** Only a Reserved reservation can be released (409 otherwise). */
 export function releaseStockReservation(token: string, id: string): Promise<StockReservation> {
   return apiFetch(`/api/stock-reservations/${id}/release`, { method: "PUT", token });
 }
 
-// TODO(S3): implement PUT /api/stock-reservations/{id}/use
-export function useStockReservation(token: string, id: string): Promise<StockReservation> {
+/** Marks a Reserved reservation as issued: the stock leaves the store. */
+export function markStockReservationUsed(token: string, id: string): Promise<StockReservation> {
   return apiFetch(`/api/stock-reservations/${id}/use`, { method: "PUT", token });
 }
 
-// TODO(S3): implement GET /api/stock-transactions
-export function listStockTransactions(token: string, params: ListParams = {}): Promise<PagedResult<StockTransaction>> {
+/** The append-only ledger. sortBy: createdAt | transactionType. */
+export function listStockTransactions(
+  token: string,
+  params: ListParams & { consumableId?: string } = {},
+): Promise<PagedResult<StockTransaction>> {
   return apiFetch(`/api/stock-transactions${buildQuery(params)}`, { token });
 }
 
-// TODO(S3): implement GET /api/suppliers
-export function listSuppliers(token: string, params: ListParams = {}): Promise<PagedResult<Supplier>> {
+/** sortBy: name | createdAt. `activeOnly` defaults to true on the API. */
+export function listSuppliers(
+  token: string,
+  params: ListParams & { activeOnly?: boolean } = {},
+): Promise<PagedResult<Supplier>> {
   return apiFetch(`/api/suppliers${buildQuery(params)}`, { token });
 }
 
 export type SupplierWriteBody = Pick<Supplier, "name" | "contactEmail" | "phone" | "address">;
 
-// TODO(S3): implement POST /api/suppliers
 export function createSupplier(token: string, body: SupplierWriteBody): Promise<Supplier> {
   return apiFetch(`/api/suppliers`, { method: "POST", token, body });
 }
 
-// TODO(S3): implement PUT /api/suppliers/{id}
-export function updateSupplier(token: string, id: string, body: SupplierWriteBody): Promise<Supplier> {
+export function updateSupplier(
+  token: string,
+  id: string,
+  body: SupplierWriteBody & { isActive: boolean },
+): Promise<Supplier> {
   return apiFetch(`/api/suppliers/${id}`, { method: "PUT", token, body });
+}
+
+/** One consumable's movements inside the report range (`ConsumableUsageRowResponse`). */
+export interface ConsumableUsageRow {
+  consumableId: string;
+  name: string;
+  unit: string;
+  unitPrice: number;
+  /** Units issued (reservations marked used) in the range. */
+  issued: number;
+  /** issued × the current unit price — the ledger stores quantities, not prices. */
+  cost: number;
+  reserved: number;
+  released: number;
+  stockedIn: number;
+  stockQuantity: number;
+  reservedNow: number;
+  availableQuantity: number;
+  isLowStock: boolean;
+}
+
+export interface ConsumableLowStock {
+  consumableId: string;
+  name: string;
+  unit: string;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minStockLevel: number;
+}
+
+export interface ConsumableUsageReport {
+  from: string;
+  to: string;
+  totalIssued: number;
+  totalCost: number;
+  totalReserved: number;
+  totalReleased: number;
+  totalStockedIn: number;
+  byItem: PagedResult<ConsumableUsageRow>;
+  lowStock: ConsumableLowStock[];
+}
+
+/** W-24, StoreOfficer only. `from`/`to` are ISO-8601 instants; sortBy: issued | cost | reserved | released | name. */
+export function getConsumableUsageReport(
+  token: string,
+  params: ListParams & { from?: string; to?: string } = {},
+): Promise<ConsumableUsageReport> {
+  return apiFetch(`/api/reports/consumable-usage${buildQuery(params)}`, { token });
 }
