@@ -8,6 +8,7 @@ requests against the C# client's actual JSON shape and FastAPI serializes respon
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -160,3 +161,72 @@ class SchedulingResponse(BaseModel):
 
     slots: list[SchedulingSlot] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
+
+
+class ValidationRequest(BaseModel):
+    """S4 Validation Agent input — DOCS §11 `{ booking_request, proposed_slots,
+    consumable_availability, room_details }`, flattened into the fields the checks need.
+
+    Every figure is StudyHive.Api's own read at call time: `proposed_slots` is step 2's Scheduling
+    output, `items` carries the same `available`/`unitPrice` step 3's Resource input did, and `rooms`
+    is the room snapshot (capacity, rate, confirmed bookings, maintenance) for the rooms those slots
+    name. `objective` is untrusted student text carried only so the proposal is complete — no check,
+    and no LLM call, ever reads it.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    objective: str = ""
+    group_size: int = Field(alias="groupSize", ge=1)
+    budget: float = Field(ge=0)
+    sessions_required: int = Field(alias="sessionsRequired", ge=1)
+    session_duration_minutes: int = Field(alias="sessionDurationMinutes", ge=1)
+    proposed_slots: list[SchedulingSlot] = Field(default_factory=list, alias="proposedSlots")
+    rooms: list[SchedulingRoom] = Field(default_factory=list)
+    items: list[ResourceRequestItem] = Field(default_factory=list)
+
+
+class ValidationRuleResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rule: str
+    passed: bool
+    detail: str
+
+
+class QuotationLineItem(BaseModel):
+    """One `quotation_line_items` row: a Room line (quantity = hours) or a Consumable line
+    (quantity = item count). `roomId`/`consumableId` say which row the line prices."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    item_type: Literal["Room", "Consumable"] = Field(alias="itemType")
+    item_name: str = Field(alias="itemName")
+    quantity: float
+    unit_price: float = Field(alias="unitPrice")
+    line_total: float = Field(alias="lineTotal")
+    room_id: UUID | None = Field(default=None, alias="roomId")
+    consumable_id: UUID | None = Field(default=None, alias="consumableId")
+
+
+class Quotation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    room_fee: float = Field(alias="roomFee")
+    consumable_cost: float = Field(alias="consumableCost")
+    total: float
+    line_items: list[QuotationLineItem] = Field(default_factory=list, alias="lineItems")
+
+
+class ValidationResponse(BaseModel):
+    """S4 output contract: `{ valid, results[{rule, passed, detail}], quotation{roomFee,
+    consumableCost, total, lineItems[]}, failures[] }`, plus `revisionNote` — the failures phrased as
+    one instruction a student can act on (null when valid)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    valid: bool
+    results: list[ValidationRuleResult] = Field(default_factory=list)
+    quotation: Quotation
+    failures: list[str] = Field(default_factory=list)
+    revision_note: str | None = Field(default=None, alias="revisionNote")
