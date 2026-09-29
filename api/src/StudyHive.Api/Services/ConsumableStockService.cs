@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
@@ -55,6 +56,10 @@ public interface IConsumableStockService
     /// output (DOCS §11: "Creates Pending reservation records but does not actually reserve stock").</summary>
     Task<StockOperationResult> CreatePendingReservationAsync(Guid bookingRequestItemId, CancellationToken ct);
 
+    /// <summary>Guarded Pending/none -&gt; Reserved transition. When the caller already has a transaction
+    /// open (the S4 approval transaction), this joins it instead of opening a nested one; an
+    /// <see cref="StockOperationOutcome.InsufficientStock"/> result then means that transaction is
+    /// aborted and the caller must roll it back.</summary>
     Task<StockOperationResult> ReserveAsync(Guid bookingRequestItemId, Guid performedByUserId, CancellationToken ct);
 
     Task<StockOperationResult> ReleaseAsync(Guid reservationId, Guid performedByUserId, CancellationToken ct);
@@ -64,12 +69,21 @@ public interface IConsumableStockService
 
 public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableStockService
 {
+    /// <summary>
+    /// Every mutation here runs in a transaction. If the caller already opened one (the S4 approval
+    /// transaction books rooms and reserves stock together), EF Core cannot nest a second, so the
+    /// operation joins the caller's and leaves commit/rollback to it — returning null here. Only
+    /// when no transaction is open does the operation begin, commit and roll back its own.
+    /// </summary>
+    private async Task<IDbContextTransaction?> BeginOwnedTransactionAsync(CancellationToken ct) =>
+        db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
+
     public async Task<StockOperationResult> StockInAsync(Guid consumableId, int quantity, Guid createdByUserId, string? notes, CancellationToken ct)
     {
         var exists = await db.Consumables.AsNoTracking().AnyAsync(c => c.Id == consumableId, ct);
         if (!exists) return StockOperationResult.Failure(StockOperationOutcome.ConsumableNotFound, "Consumable not found.");
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await BeginOwnedTransactionAsync(ct);
 
         // stock_quantity only ever grows here — chk_consumables_stock_quantity (>= 0) can never fire,
         // but the statement stays guarded and inside a transaction with the ledger write for the same
@@ -91,7 +105,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         });
         await db.SaveChangesAsync(ct);
 
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return StockOperationResult.Success(consumable: consumable);
     }
 
@@ -152,7 +166,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
                 $"This booking request item already has a stock reservation in status '{existing.Status}'.");
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await BeginOwnedTransactionAsync(ct);
 
         try
         {
@@ -165,7 +179,10 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.CheckViolation)
         {
-            await transaction.RollbackAsync(CancellationToken.None);
+            // Inside a caller's transaction the failed UPDATE has already aborted it in Postgres;
+            // rolling back is the caller's job (the approval transaction returns 409 and rolls
+            // everything back), so only a transaction this call owns is rolled back here.
+            if (transaction is not null) await transaction.RollbackAsync(CancellationToken.None);
             return StockOperationResult.Failure(
                 StockOperationOutcome.InsufficientStock,
                 $"Not enough available stock to reserve {item.Quantity} unit(s) of this consumable.");
@@ -208,7 +225,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         });
         await db.SaveChangesAsync(ct);
 
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
 
         var withConsumable = await db.StockReservations.AsNoTracking().Include(r => r.Consumable)
             .SingleAsync(r => r.Id == reservation.Id, ct);
@@ -232,7 +249,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
                 $"Only a 'Reserved' reservation can be released; this one is '{reservation.Status}'.");
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await BeginOwnedTransactionAsync(ct);
 
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"UPDATE consumables SET reserved_quantity = reserved_quantity - {reservation.Quantity}, updated_at = now() WHERE id = {reservation.ConsumableId}", ct);
@@ -255,7 +272,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         });
         await db.SaveChangesAsync(ct);
 
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         reservation.Consumable = consumable; // populate for the response mapper only, set post-save so it can't affect the write
         return StockOperationResult.Success(reservation, consumable);
     }
@@ -275,7 +292,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
                 $"Only a 'Reserved' reservation can be marked used; this one is '{reservation.Status}'.");
         }
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await using var transaction = await BeginOwnedTransactionAsync(ct);
 
         // The consumable is physically gone: both counters move together, so
         // chk_never_oversold stays satisfied and reserved never outlives the stock it held.
@@ -306,7 +323,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         });
         await db.SaveChangesAsync(ct);
 
-        await transaction.CommitAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         reservation.Consumable = consumable; // populate for the response mapper only, set post-save so it can't affect the write
         return StockOperationResult.Success(reservation, consumable);
     }
