@@ -216,6 +216,70 @@ public class StockReservationsControllerTests(S3Fixture s3) : IClassFixture<S3Fi
         }
     }
 
+    /// <summary>The S4 approval transaction calls ReserveAsync inside its own transaction; EF Core
+    /// cannot nest transactions, so the stock service must join the caller's and leave commit and
+    /// rollback to it. A rolled-back caller must leave no trace of the reservation.</summary>
+    [Fact]
+    public async Task Reserve_Joins_A_Callers_Transaction_And_Rolls_Back_With_It()
+    {
+        var consumableId = await _s3.SeedConsumableAsync(stock: 5);
+        var itemId = await _s3.SeedBookingRequestItemAsync(consumableId, 2);
+
+        using (var scope = _s3.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            var stock = scope.ServiceProvider.GetRequiredService<IConsumableStockService>();
+            await using var outer = await db.Database.BeginTransactionAsync();
+
+            var result = await stock.ReserveAsync(itemId, _s3.StoreOfficerId, CancellationToken.None);
+
+            result.Succeeded.Should().BeTrue();
+            db.Database.CurrentTransaction.Should().BeSameAs(outer, "the service must not have committed or replaced the caller's transaction");
+            await outer.RollbackAsync();
+        }
+
+        (await _s3.ReadConsumableAsync(consumableId)).ReservedQuantity.Should().Be(0);
+        using (var scope = _s3.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            (await db.StockReservations.AnyAsync(r => r.BookingRequestItemId == itemId)).Should().BeFalse();
+            (await db.StockTransactions.AnyAsync(t => t.ConsumableId == consumableId && t.TransactionType == StockTransactionType.Reserve)).Should().BeFalse();
+        }
+
+        // Committed by the caller, the same call sticks.
+        using (var scope = _s3.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            var stock = scope.ServiceProvider.GetRequiredService<IConsumableStockService>();
+            await using var outer = await db.Database.BeginTransactionAsync();
+            (await stock.ReserveAsync(itemId, _s3.StoreOfficerId, CancellationToken.None)).Succeeded.Should().BeTrue();
+            await outer.CommitAsync();
+        }
+        (await _s3.ReadConsumableAsync(consumableId)).ReservedQuantity.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task An_Oversell_Inside_A_Callers_Transaction_Reports_Insufficient_Stock_Without_Committing()
+    {
+        var consumableId = await _s3.SeedConsumableAsync(stock: 1);
+        var itemId = await _s3.SeedBookingRequestItemAsync(consumableId, 2);
+
+        using (var scope = _s3.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            var stock = scope.ServiceProvider.GetRequiredService<IConsumableStockService>();
+            await using var outer = await db.Database.BeginTransactionAsync();
+
+            var result = await stock.ReserveAsync(itemId, _s3.StoreOfficerId, CancellationToken.None);
+
+            result.Outcome.Should().Be(StockOperationOutcome.InsufficientStock);
+            db.Database.CurrentTransaction.Should().BeSameAs(outer);
+            await outer.RollbackAsync();
+        }
+
+        (await _s3.ReadConsumableAsync(consumableId)).ReservedQuantity.Should().Be(0);
+    }
+
     [Fact]
     public async Task Database_Rejects_A_Direct_Update_That_Would_Oversell()
     {
