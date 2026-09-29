@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,13 +11,8 @@ namespace StudyHive.Api.Controllers.Approvals;
 /// <summary>
 /// Reporting. Each report belongs to the owner of the data it reports on, so this controller is shared: bookings is S4's, room-usage is S2's, consumable-usage is S3's.
 ///
-/// room-usage (S2) and consumable-usage (S3) are implemented; bookings (S4) still returns 501 so its
-/// route, role gate and shape stay pinned by the plan's DOCS section 11 API table until it is built. Nothing here fabricates data: an unimplemented endpoint must
-/// never answer as though it worked.
-///
-/// To implement one: inject StudyHiveDbContext, delete the NotImplemented() call, and return the
-/// real result. Keep the route and the [Authorize] attribute exactly as they are - the web and
-/// mobile clients are already written against them.
+/// All three are implemented. Keep each route and its [Authorize] attribute as they are - the web
+/// and mobile clients are written against them.
 ///
 /// House rules that already apply here (see DOCS/S2_S3_S4_UI_Interface_Map.md):
 ///   - Lists take [FromQuery] PageQuery and return PagedResult&lt;T&gt;. Unknown sortBy is a 400.
@@ -28,18 +24,78 @@ namespace StudyHive.Api.Controllers.Approvals;
 [Authorize]
 public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
 {
-    /// <summary>The single place this scaffold refuses. Replace the call, not this helper.</summary>
-    private ObjectResult NotImplemented(string what) => Problem(
-        type: "https://studyhive.dev/errors/not-implemented",
-        title: "Not implemented yet",
-        statusCode: StatusCodes.Status501NotImplemented,
-        detail: $"{what} is owned by S2, S3 and S4 (one action each) and has not been built yet.");
-
-    /// <summary>Booking analytics. Backs W-09. Owned by S4.</summary>
+    /// <summary>Booking requests created in the <c>from</c>/<c>to</c> window (default: the last 30
+    /// days): counts by status (every status, zeros included), counts and approved spend per week
+    /// (weeks start Monday, Asia/Colombo), and approved spend against the budgets it was quoted
+    /// against. Every figure is aggregated in SQL. Backs W-09.</summary>
     [HttpGet("bookings")]
     [Authorize(Roles = $"{Roles.Librarian},{Roles.Admin}")]
-    [ProducesResponseType(StatusCodes.Status501NotImplemented)]
-    public IActionResult Bookings() => NotImplemented("The bookings report");
+    [ProducesResponseType(typeof(BookingsReportResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Bookings(
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to,
+        CancellationToken ct)
+    {
+        var rangeEnd = (to ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        var rangeStart = (from ?? rangeEnd.AddDays(-30)).ToUniversalTime();
+        if (rangeEnd <= rangeStart)
+        {
+            ModelState.AddModelError(nameof(to), "to must be later than from.");
+            return ValidationProblem(ModelState);
+        }
+
+        // The three aggregates below read one snapshot, so the per-status, per-week and spend figures
+        // always agree with each other even while requests are being created or removed.
+        await using var snapshot = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
+
+        var requests = db.BookingRequests.AsNoTracking()
+            .Where(r => r.CreatedAt >= rangeStart && r.CreatedAt < rangeEnd);
+
+        var statusCounts = await requests
+            .GroupBy(r => r.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+        var byStatus = Enum.GetValues<BookingRequestStatus>()
+            .Select(status => new BookingStatusCountResponse(status, statusCounts.SingleOrDefault(c => c.Status == status)?.Count ?? 0))
+            .ToList();
+
+        // At most one Approved quotation per request (ux_quote_active), so this is one row per
+        // approved request in the window.
+        var approved = db.Quotations.AsNoTracking()
+            .Where(q => q.Status == QuotationStatus.Approved && requests.Any(r => r.Id == q.BookingRequestId));
+        var spend = await approved
+            .GroupBy(_ => 1)
+            .Select(g => new BookingsSpendResponse(
+                g.Count(),
+                g.Sum(q => q.TotalAmount),
+                g.Sum(q => q.BudgetSnapshot),
+                g.Count(q => q.WithinBudget),
+                g.Count(q => !q.WithinBudget)))
+            .SingleOrDefaultAsync(ct) ?? new BookingsSpendResponse(0, 0m, 0m, 0, 0);
+
+        var byWeek = await db.Database.SqlQuery<BookingsWeekRow>($"""
+            SELECT (date_trunc('week', br.created_at AT TIME ZONE 'Asia/Colombo'))::date AS week_start,
+                   count(*)::int AS requests,
+                   count(q.id)::int AS approved,
+                   coalesce(sum(q.total_amount), 0) AS approved_spend,
+                   coalesce(sum(q.budget_snapshot), 0) AS approved_budget
+            FROM booking_requests br
+            LEFT JOIN quotations q ON q.booking_request_id = br.id AND q.status = 'Approved'
+            WHERE br.created_at >= {rangeStart} AND br.created_at < {rangeEnd}
+            GROUP BY 1
+            ORDER BY 1
+            """).ToListAsync(ct);
+        await snapshot.CommitAsync(ct);
+
+        return Ok(new BookingsReportResponse(
+            rangeStart,
+            rangeEnd,
+            byStatus.Sum(s => s.Count),
+            byStatus,
+            byWeek.Select(w => new BookingsWeekResponse(w.WeekStart, w.Requests, w.Approved, w.ApprovedSpend, w.ApprovedBudget)).ToList(),
+            spend));
+    }
 
     /// <summary>Room utilisation, peak hours and no-shows. Backs W-18. Owned by S2.</summary>
     [HttpGet("room-usage")]
@@ -228,8 +284,41 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
         public bool IsLowStock { get; init; }
     }
 
+    /// <summary>One row of the per-week SQL aggregate in <see cref="Bookings"/>.</summary>
+    private sealed class BookingsWeekRow
+    {
+        public DateOnly WeekStart { get; init; }
+        public int Requests { get; init; }
+        public int Approved { get; init; }
+        public decimal ApprovedSpend { get; init; }
+        public decimal ApprovedBudget { get; init; }
+    }
+
     private static decimal Round(double value) => decimal.Round((decimal)value, 2, MidpointRounding.AwayFromZero);
 }
+
+public sealed record BookingsReportResponse(
+    DateTimeOffset From,
+    DateTimeOffset To,
+    int TotalRequests,
+    IReadOnlyList<BookingStatusCountResponse> ByStatus,
+    IReadOnlyList<BookingsWeekResponse> ByWeek,
+    BookingsSpendResponse Spend);
+
+public sealed record BookingStatusCountResponse(BookingRequestStatus Status, int Count);
+
+/// <summary>A Monday-starting week (Asia/Colombo) of requests created, how many were approved, and
+/// the approved quotations' total against their budgets.</summary>
+public sealed record BookingsWeekResponse(DateOnly WeekStart, int Requests, int Approved, decimal ApprovedSpend, decimal ApprovedBudget);
+
+/// <summary>Approved quotations for the window's requests: their total spend against the budgets
+/// they were quoted against (quotations.budget_snapshot).</summary>
+public sealed record BookingsSpendResponse(
+    int ApprovedQuotations,
+    decimal TotalSpend,
+    decimal TotalBudget,
+    int WithinBudget,
+    int OverBudget);
 
 public sealed record RoomUsageReportResponse(
     DateTimeOffset From,
