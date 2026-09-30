@@ -196,7 +196,7 @@ API
 
 ### Day 3 — Thu 2 Oct: **S4 screens**
 
-**Next step (30 Sep):** the real-agent gate above is done on branch `s4/e2e-gate`. It is **not committed yet**: the working tree has `PLAN.md`, `Program.cs`, `AgentClientWiringTests.cs` (new) and `DevDataSeederTests.cs`. It still needs Codex's review. After approval: commit (`fix(s2): register the Scheduling agent client like the other agent clients`), push, open a PR into `main`, and merge once CI is green. Then start the web client card below (`s4/web-approvals-client`, cut from the new `main`).
+**Next step (30 Sep):** the real-agent gate above was reviewed and approved by Codex and committed on branch `s4/e2e-gate` (`fix(s2): register the Scheduling agent client like the other agent clients`: `PLAN.md`, `Program.cs`, `AgentClientWiringTests.cs` (new), `DevDataSeederTests.cs`). It is in PR #13, CI green; merge it into `main`. Then start the web client card below (`s4/web-approvals-client`, cut from the new `main`).
 
 Web (`web/src/pages/approvals/`, `reports/`; client `web/src/api/approvals.ts` already typed)
 - ⚠️ `web/src/api/approvals.ts` was written before the API and **does not match it**. `submitApprovalDecision` must send `{ quotationId, decision, comments }` (not `bookingRequestId`/`reason`). `listApprovals` returns queue items keyed by quotation (`status`: Pending/Approved/Rejected/RevisionRequested). The workflow, audit and report shapes are in the controllers under `api/src/StudyHive.Api/Controllers/Approvals/`. Fix the client first.
