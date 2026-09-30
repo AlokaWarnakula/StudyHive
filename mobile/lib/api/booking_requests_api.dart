@@ -1,4 +1,5 @@
 import '../models/booking_request.dart';
+import '../models/quotation.dart';
 import '../models/workflow_status.dart';
 import 'api_client.dart';
 
@@ -8,9 +9,11 @@ class BookingRequestsApi {
   const BookingRequestsApi(this._client);
 
   Future<List<BookingRequest>> listMine() async {
-    final response = await _client.get(
-            '/api/booking-requests?pageSize=100&sortBy=createdAt&sortDir=desc')
-        as Map<String, dynamic>;
+    final response =
+        await _client.get(
+              '/api/booking-requests?pageSize=100&sortBy=createdAt&sortDir=desc',
+            )
+            as Map<String, dynamic>;
     final items = response['items'] as List<dynamic>;
     return items
         .map((e) => BookingRequest.fromJson(e as Map<String, dynamic>))
@@ -36,22 +39,32 @@ class BookingRequestsApi {
     List<BookingRequestItem> items = const [],
     String? notes,
   }) async {
-    final response = await _client.post('/api/booking-requests', body: {
-      'objective': objective,
-      'groupSize': groupSize,
-      'preferredDateFrom': preferredDateFrom,
-      'preferredDateTo': preferredDateTo,
-      'preferredTimeFrom': preferredTimeFrom,
-      'preferredTimeTo': preferredTimeTo,
-      'sessionsRequired': sessionsRequired,
-      'sessionDurationMinutes': sessionDurationMinutes,
-      'budget': budget,
-      'notes': notes,
-      'items': items
-          .map((item) =>
-              {'consumableId': item.consumableId, 'quantity': item.quantity})
-          .toList(),
-    }) as Map<String, dynamic>;
+    final response =
+        await _client.post(
+              '/api/booking-requests',
+              body: {
+                'objective': objective,
+                'groupSize': groupSize,
+                'preferredDateFrom': preferredDateFrom,
+                'preferredDateTo': preferredDateTo,
+                'preferredTimeFrom': preferredTimeFrom,
+                'preferredTimeTo': preferredTimeTo,
+                'sessionsRequired': sessionsRequired,
+                'sessionDurationMinutes': sessionDurationMinutes,
+                'budget': budget,
+                'notes': notes,
+                'items':
+                    items
+                        .map(
+                          (item) => {
+                            'consumableId': item.consumableId,
+                            'quantity': item.quantity,
+                          },
+                        )
+                        .toList(),
+              },
+            )
+            as Map<String, dynamic>;
     return BookingRequest.fromJson(response);
   }
 
@@ -65,9 +78,19 @@ class BookingRequestsApi {
   Future<void> cancel(String requestId) =>
       _client.delete('/api/booking-requests/$requestId');
 
+  /// S4 — GET /api/quotations/{id}, with [quotationId] taken from the student's own
+  /// [BookingRequest.latestQuotation]. The server refuses (403) any quotation that is not theirs.
+  Future<QuotationView> getQuotation(String quotationId) async {
+    final response =
+        await _client.get('/api/quotations/$quotationId')
+            as Map<String, dynamic>;
+    return QuotationView.fromJson(response);
+  }
+
   Future<WorkflowStatus> getStatus(String requestId) async {
-    final response = await _client
-        .get('/api/booking-requests/$requestId/status') as Map<String, dynamic>;
+    final response =
+        await _client.get('/api/booking-requests/$requestId/status')
+            as Map<String, dynamic>;
     return WorkflowStatus.fromJson(response);
   }
 }

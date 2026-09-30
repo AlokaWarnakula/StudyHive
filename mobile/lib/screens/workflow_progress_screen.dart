@@ -7,6 +7,7 @@ import '../api/api_client.dart';
 import '../models/workflow_status.dart';
 import '../state/booking_requests_provider.dart';
 import '../widgets/studyhive_ui.dart';
+import 'quotation/approval_status_screen.dart';
 import 'quotation/quotation_view_screen.dart';
 
 /// M-07 "Finding your room" — polls GET /api/booking-requests/{id}/status and
@@ -63,8 +64,13 @@ class _WorkflowProgressScreenState extends State<WorkflowProgressScreen> {
       }
     } on ApiException catch (error) {
       if (!mounted) return;
-      setState(() => _error =
-          error.status == 404 ? 'The workflow is starting…' : error.toString());
+      setState(
+        () =>
+            _error =
+                error.status == 404
+                    ? 'The workflow is starting…'
+                    : error.toString(),
+      );
       if (error.status == 404) {
         _timer?.cancel();
         _timer = Timer(const Duration(seconds: 2), _refresh);
@@ -83,25 +89,27 @@ class _WorkflowProgressScreenState extends State<WorkflowProgressScreen> {
         () {
           // The final line is driven by the workflow status; the first four by
           // how many agent steps have been logged.
-          final done = i == _stepTitles.length - 1
-              ? sentToLibrarian
-              : logs.length > i;
-          final current = !done &&
+          final done =
+              i == _stepTitles.length - 1 ? sentToLibrarian : logs.length > i;
+          final current =
+              !done &&
               (i == _stepTitles.length - 1
                   ? logs.length >= _stepTitles.length - 1
                   : logs.length == i);
           final log = i < logs.length ? logs[i] : null;
           return TimelineStep(
             _stepTitles[i],
-            detail: log?.errorMessage ??
+            detail:
+                log?.errorMessage ??
                 (done
                     ? log?.agentName
                     : current
-                        ? 'In progress'
-                        : 'Waiting'),
-            state: done
-                ? TlState.done
-                : current
+                    ? 'In progress'
+                    : 'Waiting'),
+            state:
+                done
+                    ? TlState.done
+                    : current
                     ? TlState.current
                     : TlState.waiting,
           );
@@ -132,11 +140,32 @@ class _WorkflowProgressScreenState extends State<WorkflowProgressScreen> {
           if (_workflow?.status == 'PendingApproval')
             PrimaryButton(
               'View cost breakdown',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const QuotationViewScreen())),
+              onPressed:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder:
+                          (_) =>
+                              QuotationViewScreen(requestId: widget.requestId),
+                    ),
+                  ),
             ),
-          SecondaryButton('Back to home',
-              onPressed: () => Navigator.of(context).pop()),
+          // An invalid proposal ends here with the Validation agent's revision note.
+          if (_workflow?.errorCode == 'VALIDATION_FAILED')
+            PrimaryButton(
+              'See what to change',
+              onPressed:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder:
+                          (_) =>
+                              ApprovalStatusScreen(requestId: widget.requestId),
+                    ),
+                  ),
+            ),
+          SecondaryButton(
+            'Back to home',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
         ],
       ),
     );

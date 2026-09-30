@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
-import '../data/demo_seed.dart';
 import '../state/auth_provider.dart';
 import '../state/booking_requests_provider.dart';
 import '../state/profile_provider.dart';
 import '../widgets/studyhive_ui.dart';
 import 'consumables/browse_consumables_screen.dart';
 import 'quotation/booking_history_screen.dart';
+import 'quotation/quotation_view_screen.dart';
 
 /// M-16 "Profile" — GET /api/student-profiles/{id}. Limits are read-only here;
 /// an admin edits them. Students who have not onboarded yet get the profile
@@ -24,8 +24,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => context.read<ProfileProvider>().refresh());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => context.read<ProfileProvider>().refresh(),
+    );
   }
 
   @override
@@ -57,10 +58,23 @@ class _ProfileView extends StatelessWidget {
     final profile = context.watch<ProfileProvider>().profile!;
     final auth = context.watch<AuthProvider>();
     final requests = context.watch<BookingRequestsProvider>().requests;
-    final used = requests
-        .where((r) => !{'Draft', 'Rejected', 'Completed', 'Cancelled', 'Failed'}
-            .contains(r.status))
-        .length;
+    final used =
+        requests
+            .where(
+              (r) =>
+                  !{
+                    'Draft',
+                    'Rejected',
+                    'Completed',
+                    'Cancelled',
+                    'Failed',
+                  }.contains(r.status),
+            )
+            .length;
+    // The latest quotation of each own request (GET /api/booking-requests), approved ones only.
+    final approvedSpend = requests
+        .where((r) => r.latestQuotation?.status == 'Approved')
+        .fold<double>(0, (sum, r) => sum + r.latestQuotation!.totalAmount);
 
     return ScreenBody(
       children: [
@@ -72,12 +86,15 @@ class _ProfileView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(auth.studentName ?? 'Student profile',
-                      style: const TextStyle(
-                          fontSize: 19, fontWeight: FontWeight.w600)),
+                  Text(
+                    auth.studentName ?? 'Student profile',
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (auth.studentEmail != null) FNote(auth.studentEmail!),
-                  FNote(
-                      '${profile.department} · Year ${profile.yearOfStudy}'),
+                  FNote('${profile.department} · Year ${profile.yearOfStudy}'),
                 ],
               ),
             ),
@@ -88,14 +105,17 @@ class _ProfileView extends StatelessWidget {
             Kv('Student number', profile.studentNumber),
             Kv.widget(
               label: 'Account',
-              trailing: ShTag.forStatus(profile.isActive ? 'Active' : 'Inactive'),
+              trailing: ShTag.forStatus(
+                profile.isActive ? 'Active' : 'Inactive',
+              ),
             ),
             Kv('Bookings this week', '$used of ${profile.maxBookingsPerWeek}'),
             Kv(
-                'Outstanding penalties',
-                profile.penaltyPoints == 0
-                    ? 'None'
-                    : '${profile.penaltyPoints} points'),
+              'Outstanding penalties',
+              profile.penaltyPoints == 0
+                  ? 'None'
+                  : '${profile.penaltyPoints} points',
+            ),
             if (profile.suspendedUntil != null)
               Kv('Suspended until', profile.suspendedUntil!),
           ],
@@ -103,24 +123,29 @@ class _ProfileView extends StatelessWidget {
         Tile(
           children: [
             const Lbl('Spend'),
-            if (demoPreviewEnabled) ...[
-              const DemoPreviewBanner(),
-              const Kv('This month', 'Rs. 1,020'),
-              const Kv('All bookings', 'Rs. 4,380'),
-            ] else
-              const FNote(
-                  'Spend totals appear when the booking history API is connected.'),
-            ShLink('See past bookings and costs',
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const BookingHistoryScreen()))),
+            Kv('Approved bookings', formatRs(approvedSpend)),
+            ShLink(
+              'See past bookings and costs',
+              onPressed:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const BookingHistoryScreen(live: true),
+                    ),
+                  ),
+            ),
           ],
         ),
         Column(
           children: [
             _SettingRow(
-                label: 'Browse consumables',
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const BrowseConsumablesScreen()))),
+              label: 'Browse consumables',
+              onTap:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const BrowseConsumablesScreen(),
+                    ),
+                  ),
+            ),
             const SizedBox(height: 2),
             const _SettingRow(label: 'Notifications'),
             const SizedBox(height: 2),
@@ -151,13 +176,13 @@ class _SettingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tile.row(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-        onTap: onTap,
-        children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
-          const Icon(Icons.chevron_right, size: 20),
-        ],
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+    onTap: onTap,
+    children: [
+      Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
+      const Icon(Icons.chevron_right, size: 20),
+    ],
+  );
 }
 
 class _OnboardingForm extends StatefulWidget {
@@ -191,10 +216,10 @@ class _OnboardingFormState extends State<_OnboardingForm> {
     });
     try {
       await context.read<ProfileProvider>().onboard(
-            studentNumber: _studentNumberController.text.trim(),
-            department: _departmentController.text.trim(),
-            yearOfStudy: int.parse(_yearController.text),
-          );
+        studentNumber: _studentNumberController.text.trim(),
+        department: _departmentController.text.trim(),
+        yearOfStudy: int.parse(_yearController.text),
+      );
     } on ApiException catch (e) {
       setState(() => _error = e.toString());
     } catch (_) {
@@ -210,22 +235,27 @@ class _OnboardingFormState extends State<_OnboardingForm> {
       key: _formKey,
       child: ScreenBody(
         children: [
-          const Heading('Finish setting up your student profile',
-              fontSize: 25),
+          const Heading('Finish setting up your student profile', fontSize: 25),
           const FNote(
-              'This is required before you can create booking requests.'),
+            'This is required before you can create booking requests.',
+          ),
           ShTextField(
             label: 'Student number',
             controller: _studentNumberController,
-            validator: (v) => (v == null || v.trim().isEmpty)
-                ? 'Student number is required'
-                : null,
+            validator:
+                (v) =>
+                    (v == null || v.trim().isEmpty)
+                        ? 'Student number is required'
+                        : null,
           ),
           ShTextField(
             label: 'Department',
             controller: _departmentController,
-            validator: (v) =>
-                (v == null || v.trim().isEmpty) ? 'Department is required' : null,
+            validator:
+                (v) =>
+                    (v == null || v.trim().isEmpty)
+                        ? 'Department is required'
+                        : null,
           ),
           ShTextField(
             label: 'Year of study',
