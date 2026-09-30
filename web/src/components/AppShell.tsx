@@ -13,6 +13,7 @@ import { Icon, type IconName } from "./Icon";
  */
 
 const LIBRARIAN: StaffRole[] = ["Librarian", "Admin"];
+const LIBRARIAN_ONLY: StaffRole[] = ["Librarian"];
 const STORE: StaffRole[] = ["StoreOfficer", "Admin"];
 const STORE_OFFICER: StaffRole[] = ["StoreOfficer"];
 const ADMIN_ONLY: StaffRole[] = ["Admin"];
@@ -37,7 +38,7 @@ const NAV: NavGroup[] = [
   {
     caption: "Work",
     items: [
-      { to: "/approvals", label: "Approvals", icon: "inbox", allow: LIBRARIAN },
+      { to: "/approvals", label: "Approvals", icon: "inbox", allow: LIBRARIAN_ONLY },
       { to: "/requests", label: "Requests", icon: "file-text", allow: LIBRARIAN },
       { to: "/students", label: "Students", icon: "graduation-cap", allow: LIBRARIAN },
     ],
@@ -63,8 +64,8 @@ const NAV: NavGroup[] = [
     caption: "Insight",
     items: [
       { to: "/reports", label: "Reports", icon: "bar-chart-3", allow: LIBRARIAN, end: true },
-      { to: "/workflows", label: "Workflow runs", icon: "workflow", allow: LIBRARIAN, end: true },
-      { to: "/audit-log", label: "Audit log", icon: "scroll-text", allow: LIBRARIAN },
+      { to: "/workflows", label: "Workflow runs", icon: "workflow", allow: LIBRARIAN_ONLY, end: true },
+      { to: "/audit-log", label: "Audit log", icon: "scroll-text", allow: ADMIN_ONLY },
     ],
   },
   {

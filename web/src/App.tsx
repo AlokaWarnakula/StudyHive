@@ -45,7 +45,10 @@ import { SettingsPage } from "./pages/admin/SettingsPage";
 const S1_ROLES: StaffRole[] = ["Librarian", "Admin"]; // Requests & students
 const S2_ROLES: StaffRole[] = ["Librarian", "Admin"]; // Rooms, equipment, maintenance
 const S3_ROLES: StaffRole[] = ["StoreOfficer", "Admin"]; // Consumables & stock
-const S4_ROLES: StaffRole[] = ["Librarian", "Admin"]; // Approvals, costing, workflow, audit
+// S4: the API serves approvals, quotations and workflow runs to Librarians only, the audit log to
+// Admins only, and the bookings report to both.
+const S4_LIBRARIAN: StaffRole[] = ["Librarian"];
+const S4_REPORT_ROLES: StaffRole[] = ["Librarian", "Admin"];
 const ADMIN_ROLES: StaffRole[] = ["Admin"]; // Users & settings
 const ALL_STAFF: StaffRole[] = ["Librarian", "StoreOfficer", "Admin"];
 
@@ -66,16 +69,17 @@ export function App() {
         <Route path="/" element={<ProtectedRoute allow={ALL_STAFF}><DashboardPage /></ProtectedRoute>} />
 
         {/* W-03 … W-08 — S4 */}
-        <Route path="/approvals" element={<ProtectedRoute allow={S4_ROLES}><ApprovalQueuePage /></ProtectedRoute>} />
-        <Route path="/approvals/:id" element={<ProtectedRoute allow={S4_ROLES}><ReviewProposalPage /></ProtectedRoute>} />
-        <Route path="/quotations/:id" element={<ProtectedRoute allow={S4_ROLES}><QuotationDetailPage /></ProtectedRoute>} />
-        <Route path="/workflows" element={<ProtectedRoute allow={S4_ROLES}><ExecutionHistoryPage /></ProtectedRoute>} />
-        <Route path="/workflows/:id" element={<ProtectedRoute allow={S4_ROLES}><WorkflowExecutionPage /></ProtectedRoute>} />
-        <Route path="/audit-log" element={<ProtectedRoute allow={S4_ROLES}><AuditLogPage /></ProtectedRoute>} />
+        <Route path="/approvals" element={<ProtectedRoute allow={S4_LIBRARIAN}><ApprovalQueuePage /></ProtectedRoute>} />
+        <Route path="/approvals/:id" element={<ProtectedRoute allow={S4_LIBRARIAN}><ReviewProposalPage /></ProtectedRoute>} />
+        <Route path="/quotations/:id" element={<ProtectedRoute allow={S4_LIBRARIAN}><QuotationDetailPage /></ProtectedRoute>} />
+        <Route path="/workflows" element={<ProtectedRoute allow={S4_LIBRARIAN}><ExecutionHistoryPage /></ProtectedRoute>} />
+        <Route path="/workflows/:id" element={<ProtectedRoute allow={S4_LIBRARIAN}><WorkflowExecutionPage /></ProtectedRoute>} />
+        <Route path="/audit-log" element={<ProtectedRoute allow={ADMIN_ROLES}><AuditLogPage /></ProtectedRoute>} />
 
         {/* W-09, W-18, W-24 — the three reports share one tab strip */}
-        <Route path="/reports" element={<ProtectedRoute allow={S4_ROLES}><ReportsPage /></ProtectedRoute>} />
-        <Route path="/reports/rooms" element={<ProtectedRoute allow={S2_ROLES}><RoomUtilisationPage /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute allow={S4_REPORT_ROLES}><ReportsPage /></ProtectedRoute>} />
+        {/* The room-usage API is Librarian-only. */}
+        <Route path="/reports/rooms" element={<ProtectedRoute allow={["Librarian"]}><RoomUtilisationPage /></ProtectedRoute>} />
         {/* W-24 is S3's report and the API serves it to StoreOfficer only. */}
         <Route path="/reports/consumables" element={<ProtectedRoute allow={["StoreOfficer"]}><ConsumableUsagePage /></ProtectedRoute>} />
 
