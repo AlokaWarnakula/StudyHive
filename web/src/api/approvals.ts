@@ -1,35 +1,58 @@
 /**
- * S4 — Costing, Validation, Approval & Audit API client. SCAFFOLD.
- *
- * Typed and written; the endpoints behind it return 501 until S4 implements
- * `api/src/StudyHive.Api/Controllers/Approvals/`. Nothing here fabricates data.
+ * S4 — Costing, Validation, Approval & Audit API client, typed against the live controllers in
+ * `api/src/StudyHive.Api/Controllers/Approvals/` (response classes at the bottom of each file).
  *
  * Screens this backs: W-03 Approval queue, W-04 Review proposal, W-05 Quotation detail,
  * W-06 Workflow execution viewer, W-07 Execution history, W-08 Audit log, W-09 Reports;
  * mobile M-08 Your quotation.
  *
- * `submitApprovalDecision` is the one that matters. The plan requires that an Approved decision
- * commits rooms and stock in ONE database transaction — the room exclusion constraint and the
- * stock CHECK are the last line of defence inside it. Do not split it into two calls.
+ * `submitApprovalDecision` is the one that matters. An Approved decision books the rooms and
+ * reserves the stock in ONE database transaction on the server — the room exclusion constraint and
+ * the stock CHECK are the last line of defence inside it. A clash comes back as a 409 whose
+ * ProblemDetails `type` says why; see `approvalConflictKind`.
  *
- * Note on workflow executions: S1 owns the rows and writes them during orchestration. These are
- * the staff-facing read views over them, which is S4's half.
+ * Roles: approvals, quotation list and workflow executions are Librarian; a single quotation is
+ * Librarian or the owning Student; audit logs are Admin; the bookings report is Librarian or Admin.
+ * Room usage is S2's (`getRoomUsageReport` in ./rooms.ts), consumable usage S3's
+ * (`getConsumableUsageReport` in ./consumables.ts).
  */
 
-import { apiFetch } from "./client";
+import { ApiError, apiFetch } from "./client";
 import type { PagedResult } from "./bookingRequests";
 
 export type { PagedResult } from "./bookingRequests";
 
 export type ApprovalDecisionKind = "Approved" | "Rejected" | "RevisionRequested";
 
-/**
- * Mirrors `approval_decisions`. Note there is no bookingRequestId column — a decision is attached
- * to a quotation, and the quotation carries the request. Join through it.
- */
+/** The queue filter: Pending (awaiting a decision) or the decision made. */
+export type ApprovalQueueStatus = "Pending" | ApprovalDecisionKind;
+
+export type QuotationStatus = "Draft" | "Proposed" | "Approved" | "Rejected" | "Superseded";
+
+export type WorkflowStatus =
+  | "Started"
+  | "InProgress"
+  | "PendingApproval"
+  | "Approved"
+  | "Rejected"
+  | "Failed"
+  | "Completed";
+
+export type BookingRequestStatus =
+  | "Draft"
+  | "Submitted"
+  | "Processing"
+  | "PendingApproval"
+  | "Approved"
+  | "Rejected"
+  | "RevisionRequested"
+  | "Completed"
+  | "Cancelled"
+  | "Failed";
+
+/** ApprovalDecisionResponse — mirrors `approval_decisions`. */
 export interface ApprovalDecision {
   id: string;
-  /** NOT NULL in the database. */
   quotationId: string;
   decidedBy: string;
   /** The role held at the time of the decision, stored so a later role change cannot rewrite history. */
@@ -39,14 +62,63 @@ export interface ApprovalDecision {
   decidedAt: string;
 }
 
+/** POST /api/approvals body. `comments` is required unless the decision is Approved (400 otherwise). */
+export interface ApprovalDecisionRequest {
+  quotationId: string;
+  decision: ApprovalDecisionKind;
+  comments?: string | null;
+}
+
+/** ApprovalQueueItemResponse — one queue row: a quotation and its latest decision, if any. */
+export interface ApprovalQueueItem {
+  quotationId: string;
+  bookingRequestId: string;
+  studentId: string;
+  objective: string;
+  groupSize: number;
+  version: number;
+  roomFee: number;
+  consumableCost: number;
+  totalAmount: number;
+  budgetSnapshot: number;
+  withinBudget: boolean;
+  currency: string;
+  quotationStatus: QuotationStatus;
+  createdAt: string;
+  decision: ApprovalDecision | null;
+  /** Pending while the quotation is Proposed, otherwise the latest decision. */
+  status: ApprovalQueueStatus | QuotationStatus;
+}
+
+/** ApprovalLineItemResponse. `itemType` is Room or Consumable. */
+export interface ApprovalLineItem {
+  id: string;
+  itemType: "Room" | "Consumable";
+  itemName: string;
+  roomId: string | null;
+  /** Null until an approval books the room. */
+  roomBookingId: string | null;
+  consumableId: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+/** ApprovalDetailResponse — GET /api/approvals/{quotationId}. */
+export interface ApprovalDetail {
+  item: ApprovalQueueItem;
+  lineItems: ApprovalLineItem[];
+}
+
 /**
- * Mirrors `quotation_line_items`. `chk_line_shape` enforces the pairing: a Room line carries a
- * roomBookingId and no consumableId, a Consumable line the reverse. Neither may be both or neither.
+ * QuotationLineItemResponse — mirrors `quotation_line_items`. A Room line carries `roomId` (and
+ * `roomBookingId` once approved); a Consumable line carries `consumableId`.
  */
 export interface QuotationLineItem {
   id: string;
   quotationId: string;
   itemType: "Room" | "Consumable";
+  roomId: string | null;
   roomBookingId: string | null;
   consumableId: string | null;
   itemName: string;
@@ -57,7 +129,7 @@ export interface QuotationLineItem {
   createdAt: string;
 }
 
-/** Mirrors `quotations`. */
+/** QuotationResponse — GET /api/quotations/{id}, mirrors `quotations` with its lines. */
 export interface Quotation {
   id: string;
   bookingRequestId: string;
@@ -71,28 +143,77 @@ export interface Quotation {
   /** READ-ONLY. A generated column: `total_amount <= budget_snapshot`. */
   withinBudget: boolean;
   currency: string;
-  status: "Draft" | "Proposed" | "Approved" | "Rejected" | "Superseded";
+  status: QuotationStatus;
   createdAt: string;
   updatedAt: string;
   lineItems: QuotationLineItem[];
 }
 
+/** QuotationSummaryResponse — one row of GET /api/quotations (no lines, just their count). */
+export interface QuotationSummary {
+  id: string;
+  bookingRequestId: string;
+  objective: string;
+  version: number;
+  roomFee: number;
+  consumableCost: number;
+  totalAmount: number;
+  budgetSnapshot: number;
+  withinBudget: boolean;
+  currency: string;
+  status: QuotationStatus;
+  lineItemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** WorkflowExecutionSummaryResponse — mirrors `workflow_executions`. */
 export interface WorkflowExecutionSummary {
   id: string;
   bookingRequestId: string;
-  status: string;
+  objective: string;
+  status: WorkflowStatus;
   currentStep: number;
   totalSteps: number | null;
+  /** e.g. VALIDATION_FAILED, STEP_RETRY_EXHAUSTED. */
   errorCode: string | null;
+  /** For VALIDATION_FAILED this is the revision note shown to the student. */
+  errorMessage: string | null;
   startedAt: string;
   completedAt: string | null;
+  updatedAt: string;
 }
 
-/** Mirrors `audit_logs`. Append-only — there is deliberately no write function in this client. */
+/** WorkflowStepResponse — tool inputs, outputs, validation results and timings, never chain-of-thought. */
+export interface WorkflowStep {
+  id: string;
+  stepNumber: number;
+  attempt: number;
+  agentName: string;
+  toolName: string | null;
+  /** Stored JSON, parsed. A value that was not JSON comes back as a string. */
+  input: unknown;
+  output: unknown;
+  validationResult: "Pass" | "Fail" | "Warning" | null;
+  validationDetails: string | null;
+  errorMessage: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+/** WorkflowExecutionDetailResponse — GET /api/workflow-executions/{id}. */
+export interface WorkflowExecutionDetail {
+  execution: WorkflowExecutionSummary;
+  plan: unknown;
+  steps: WorkflowStep[];
+}
+
+/** AuditLogResponse — mirrors `audit_logs`. Append-only: there is deliberately no write function here. */
 export interface AuditLogEntry {
   id: string;
   /** Null when the acting account was deleted: the FK is ON DELETE SET NULL so the trail outlives it. */
   userId: string | null;
+  userEmail: string | null;
   correlationId: string | null;
   action: string;
   entityType: string;
@@ -102,11 +223,27 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+/** BookingsReportResponse — GET /api/reports/bookings. */
+export interface BookingsReport {
+  from: string;
+  to: string;
+  totalRequests: number;
+  byStatus: { status: BookingRequestStatus; count: number }[];
+  /** Monday-starting weeks (Asia/Colombo); `weekStart` is a date (yyyy-MM-dd). */
+  byWeek: { weekStart: string; requests: number; approved: number; approvedSpend: number; approvedBudget: number }[];
+  spend: {
+    approvedQuotations: number;
+    totalSpend: number;
+    totalBudget: number;
+    withinBudget: number;
+    overBudget: number;
+  };
+}
+
 export interface ListParams {
   page?: number;
   pageSize?: number;
   search?: string;
-  status?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
 }
@@ -120,67 +257,94 @@ function buildQuery(params: object): string {
   return qs ? `?${qs}` : "";
 }
 
-// TODO(S4): implement GET /api/approvals
-export function listApprovals(token: string, params: ListParams = {}): Promise<PagedResult<ApprovalDecision>> {
+/** GET /api/approvals — Pending first. `sortBy`: createdAt | totalAmount. */
+export function listApprovals(
+  token: string,
+  params: ListParams & { status?: ApprovalQueueStatus } = {},
+): Promise<PagedResult<ApprovalQueueItem>> {
   return apiFetch(`/api/approvals${buildQuery(params)}`, { token });
 }
 
-// TODO(S4): implement GET /api/approvals/{id}
-export function getApproval(token: string, id: string): Promise<ApprovalDecision> {
-  return apiFetch(`/api/approvals/${id}`, { token });
+/** GET /api/approvals/{quotationId} — keyed by quotation, not by decision. */
+export function getApproval(token: string, quotationId: string): Promise<ApprovalDetail> {
+  return apiFetch(`/api/approvals/${quotationId}`, { token });
 }
 
-/** ONE transaction: books the rooms and reserves the stock together, or neither. */
-// TODO(S4): implement POST /api/approvals
-export function submitApprovalDecision(
-  token: string,
-  body: { bookingRequestId: string; decision: ApprovalDecisionKind; reason?: string },
-): Promise<ApprovalDecision> {
+/** POST /api/approvals — 201 with the decision. ONE transaction: books the rooms and reserves the stock together, or neither. */
+export function submitApprovalDecision(token: string, body: ApprovalDecisionRequest): Promise<ApprovalDecision> {
   return apiFetch(`/api/approvals`, { method: "POST", token, body });
 }
 
-// TODO(S4): implement GET /api/quotations
-export function listQuotations(token: string, params: ListParams = {}): Promise<PagedResult<Quotation>> {
+/** Why a decision came back 409, from the ProblemDetails `type` (https://studyhive.dev/errors/{kind}). */
+export type ApprovalConflictKind =
+  | "already-decided"
+  | "room-conflict"
+  | "insufficient-stock"
+  | "proposal-incomplete"
+  | "conflict";
+
+/** The conflict kind of a failed `submitApprovalDecision`, or null when the error is not a 409. */
+export function approvalConflictKind(error: unknown): ApprovalConflictKind | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const kind = error.problem.type?.split("/").pop();
+  switch (kind) {
+    case "already-decided":
+    case "room-conflict":
+    case "insufficient-stock":
+    case "proposal-incomplete":
+      return kind;
+    default:
+      return "conflict";
+  }
+}
+
+/** GET /api/quotations (Librarian). `sortBy`: createdAt | totalAmount | status. */
+export function listQuotations(
+  token: string,
+  params: ListParams & { status?: QuotationStatus; bookingRequestId?: string } = {},
+): Promise<PagedResult<QuotationSummary>> {
   return apiFetch(`/api/quotations${buildQuery(params)}`, { token });
 }
 
-// TODO(S4): implement GET /api/quotations/{id}
+/** GET /api/quotations/{id} — Librarian, or the Student who owns the request (403 otherwise). */
 export function getQuotation(token: string, id: string): Promise<Quotation> {
   return apiFetch(`/api/quotations/${id}`, { token });
 }
 
-// TODO(S4): implement GET /api/workflow-executions
+/** GET /api/workflow-executions — Failed first. `sortBy`: startedAt | completedAt | status. */
 export function listWorkflowExecutions(
   token: string,
-  params: ListParams = {},
+  params: ListParams & { status?: WorkflowStatus; errorCode?: string } = {},
 ): Promise<PagedResult<WorkflowExecutionSummary>> {
   return apiFetch(`/api/workflow-executions${buildQuery(params)}`, { token });
 }
 
-// TODO(S4): implement GET /api/workflow-executions/{id}
-export function getWorkflowExecution(token: string, id: string): Promise<WorkflowExecutionSummary> {
+/** GET /api/workflow-executions/{id} — the execution, its plan and every step attempt. */
+export function getWorkflowExecution(token: string, id: string): Promise<WorkflowExecutionDetail> {
   return apiFetch(`/api/workflow-executions/${id}`, { token });
 }
 
-/** Tool inputs, outputs, validation results and timings — never chain-of-thought. */
-// TODO(S4): implement GET /api/workflow-executions/{id}/steps
-export function getWorkflowSteps(token: string, id: string): Promise<unknown[]> {
+/** GET /api/workflow-executions/{id}/steps — the step attempts alone. */
+export function getWorkflowSteps(token: string, id: string): Promise<WorkflowStep[]> {
   return apiFetch(`/api/workflow-executions/${id}/steps`, { token });
 }
 
-// TODO(S4): implement GET /api/audit-logs
-export function listAuditLogs(token: string, params: ListParams = {}): Promise<PagedResult<AuditLogEntry>> {
+export interface AuditLogFilters extends ListParams {
+  action?: string;
+  entityType?: string;
+  entityId?: string;
+  userId?: string;
+  /** ISO date-time; `to` must be later than `from`. */
+  from?: string;
+  to?: string;
+}
+
+/** GET /api/audit-logs (Admin). `sortBy`: createdAt | action | entityType. */
+export function listAuditLogs(token: string, params: AuditLogFilters = {}): Promise<PagedResult<AuditLogEntry>> {
   return apiFetch(`/api/audit-logs${buildQuery(params)}`, { token });
 }
 
-// TODO(S4): implement GET /api/reports/bookings
-export function getBookingsReport(token: string, from: string, to: string): Promise<unknown> {
+/** GET /api/reports/bookings (Librarian or Admin). Omitted bounds default to the last 30 days. */
+export function getBookingsReport(token: string, from?: string, to?: string): Promise<BookingsReport> {
   return apiFetch(`/api/reports/bookings${buildQuery({ from, to })}`, { token });
 }
-
-// TODO(S2): implement GET /api/reports/room-usage
-export function getRoomUsageReport(token: string, from: string, to: string): Promise<unknown> {
-  return apiFetch(`/api/reports/room-usage${buildQuery({ from, to })}`, { token });
-}
-
-// GET /api/reports/consumable-usage is S3's and typed in ./consumables.ts (getConsumableUsageReport).
