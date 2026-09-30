@@ -93,10 +93,21 @@ public sealed class BookingRequestResponse
     public required BookingRequestStatus Status { get; init; }
     public required IReadOnlyList<BookingRequestItemResponse> Items { get; init; }
     public Guid? LatestWorkflowId { get; init; }
+    /// <summary>The request's newest non-Draft quotation, or null before one is proposed. Lets a
+    /// student reach GET /api/quotations/{id} for their own request (M-08).</summary>
+    public BookingQuotationSummaryResponse? LatestQuotation { get; init; }
+    /// <summary>The librarian's decision on <see cref="LatestQuotation"/> itself, or null while that
+    /// quotation is undecided (an older version's decision is never carried over). Carries the
+    /// outcome and comments only, never who decided.</summary>
+    public BookingDecisionSummaryResponse? LatestDecision { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
 
-    public static BookingRequestResponse From(BookingRequest request, Guid? latestWorkflowId = null) => new()
+    public static BookingRequestResponse From(
+        BookingRequest request,
+        Guid? latestWorkflowId = null,
+        BookingQuotationSummaryResponse? latestQuotation = null,
+        BookingDecisionSummaryResponse? latestDecision = null) => new()
     {
         Id = request.Id,
         StudentId = request.StudentId,
@@ -113,9 +124,31 @@ public sealed class BookingRequestResponse
         Status = request.Status,
         Items = request.Items.Select(BookingRequestItemResponse.From).ToList(),
         LatestWorkflowId = latestWorkflowId,
+        LatestQuotation = latestQuotation,
+        LatestDecision = latestDecision,
         CreatedAt = request.CreatedAt,
         UpdatedAt = request.UpdatedAt,
     };
+}
+
+/// <summary>The minimum a student needs to find and judge their quotation (S4).</summary>
+public sealed class BookingQuotationSummaryResponse
+{
+    public required Guid Id { get; init; }
+    public required QuotationStatus Status { get; init; }
+    public required int Version { get; init; }
+    public required decimal TotalAmount { get; init; }
+    public required string Currency { get; init; }
+    public required decimal BudgetSnapshot { get; init; }
+    public required bool WithinBudget { get; init; }
+}
+
+/// <summary>A librarian's decision as the student sees it (S4): outcome, comments and when.</summary>
+public sealed class BookingDecisionSummaryResponse
+{
+    public required ApprovalDecisionType Decision { get; init; }
+    public string? Comments { get; init; }
+    public required DateTimeOffset DecidedAt { get; init; }
 }
 
 public sealed class SubmitBookingRequestResponse
