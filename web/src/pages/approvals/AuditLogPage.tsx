@@ -1,96 +1,174 @@
 import { useState } from "react";
+import { listAuditLogs, type AuditLogFilters } from "../../api/approvals";
 import { Screen } from "../../components/AppShell";
-import { FixtureNotice, NotBuiltYet, Pagination, Select, TagOf, Toolbar } from "../../components/ui";
-import { useFixture } from "../../dev/useFixture";
+import { Pagination, Select, Tag, Toolbar } from "../../components/ui";
+import { useAuthStore } from "../../store/authStore";
+import { formatDateTime, formatPayload, showingRange, useLoad } from "./s4";
+
+const PAGE_SIZE = 25;
+
+const SORT_OPTIONS = ["Newest", "Oldest", "Action", "Entity"] as const;
+const SORT_VALUES: Record<(typeof SORT_OPTIONS)[number], { sortBy: string; sortDir: "asc" | "desc" }> = {
+  Newest: { sortBy: "createdAt", sortDir: "desc" },
+  Oldest: { sortBy: "createdAt", sortDir: "asc" },
+  Action: { sortBy: "action", sortDir: "asc" },
+  Entity: { sortBy: "entityType", sortDir: "asc" },
+};
+
+interface Draft {
+  action: string;
+  entityType: string;
+  entityId: string;
+  userId: string;
+  from: string;
+  to: string;
+}
+
+const EMPTY: Draft = { action: "", entityType: "", entityId: "", userId: "", from: "", to: "" };
+
+/** A yyyy-MM-dd date input as the start of that local day, in ISO. `to` covers its whole day. */
+function dayBound(date: string, endOfDay: boolean): string | undefined {
+  if (!date) return undefined;
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, endOfDay ? d + 1 : d).toISOString();
+}
 
 /**
- * W-08 · Audit log — GET /api/audit-logs. Append-only, searchable and filterable by action,
- * entity, user and date. Owned by S4.
+ * W-08 · Audit log — GET /api/audit-logs (Admin). Append-only and read-only: filter by action,
+ * entity, user and date. Each row's details are the JSON the writer recorded, shown as text.
  */
 export function AuditLogPage() {
-  const fixture = useFixture((f) => ({ log: f.audit, filters: f.filters }));
-  const [search, setSearch] = useState("");
+  const token = useAuthStore((s) => s.accessToken);
+  const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [applied, setApplied] = useState<Draft>(EMPTY);
+  const [sort, setSort] = useState<(typeof SORT_OPTIONS)[number]>("Newest");
+  const [page, setPage] = useState(1);
 
-  if (!fixture.enabled) {
+  const params: AuditLogFilters = {
+    action: applied.action.trim() || undefined,
+    entityType: applied.entityType.trim() || undefined,
+    entityId: applied.entityId.trim() || undefined,
+    userId: applied.userId.trim() || undefined,
+    from: dayBound(applied.from, false),
+    to: dayBound(applied.to, true),
+    page,
+    pageSize: PAGE_SIZE,
+    ...SORT_VALUES[sort],
+  };
+  const logs = useLoad(() => (token ? listAuditLogs(token, params) : null), JSON.stringify(params), "Failed to load the audit log.");
+  const result = logs.data;
+
+  function field(key: keyof Draft, label: string, type = "text", width = 170) {
     return (
-      <Screen title="Audit log" crumb="Read-only record of every change">
-        <NotBuiltYet owner="S4 audit" what="The audit log" />
-      </Screen>
+      <input
+        className="input"
+        style={{ maxWidth: width }}
+        type={type}
+        placeholder={label}
+        aria-label={label}
+        value={draft[key]}
+        onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+      />
     );
   }
 
-  const a = fixture.data.log;
-  const filters = fixture.data.filters;
-  const term = search.trim().toLowerCase();
-  const rows = term ? a.rows.filter((r) => `${r.entity} ${r.user}`.toLowerCase().includes(term)) : a.rows;
-
   return (
-    <Screen
-      title="Audit log"
-      crumb="Read-only record of every change"
-      actions={
-        <button type="button" className="btn btn-secondary">
-          Export CSV
-        </button>
-      }
-      showUser={false}
-    >
-      <FixtureNotice owner="S4" what="Audit rows" />
-
+    <Screen title="Audit log" crumb="Read-only record of every change" showUser={false}>
       <Toolbar>
-        <input
-          className="input"
-          style={{ maxWidth: 260 }}
-          placeholder="Search entity id or user"
-          aria-label="Search entity id or user"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <Select label="Action" options={["All", "Approve", "Reject", "Create", "Update role"]} width={160} />
-        <Select label="Entity" options={filters.auditEntities} width={160} />
-        <Select label="User" options={filters.auditUsers} width={160} />
-        <input className="input" style={{ maxWidth: 170 }} defaultValue={filters.auditRange} aria-label="Date range" />
+        <form
+          style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setApplied(draft);
+            setPage(1);
+          }}
+        >
+          {field("action", "Action, e.g. QuotationApproved", "text", 230)}
+          {field("entityType", "Entity type, e.g. Quotation")}
+          {field("entityId", "Entity id")}
+          {field("userId", "User id")}
+          {field("from", "From date", "date", 150)}
+          {field("to", "To date", "date", 150)}
+          <button type="submit" className="btn btn-primary">Apply</button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setDraft(EMPTY);
+              setApplied(EMPTY);
+              setPage(1);
+            }}
+          >
+            Clear
+          </button>
+        </form>
+        <Select label="Sort" options={SORT_OPTIONS} value={sort} onChange={(v) => setSort(v as (typeof SORT_OPTIONS)[number])} />
       </Toolbar>
 
-      <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>User</th>
-              <th>Role</th>
-              <th>Action</th>
-              <th>Entity</th>
-              <th>Before → after</th>
-              <th>IP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={`${r.when}-${r.entity}-${i}`}>
-                <td>{r.when}</td>
-                <td>{r.user}</td>
-                <td>{r.role}</td>
-                <td>
-                  <TagOf tag={r.action} />
-                </td>
-                <td>{r.entity}</td>
-                <td>{r.change}</td>
-                <td>{r.ip}</td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={7}>
-                  <div className="state-view">No audit row matches “{search}”.</div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {logs.error && <p role="alert" className="form-error">{logs.error}</p>}
+      {logs.loading && !result && <div className="state-view">Loading…</div>}
 
-      <Pagination showing={`Showing 1–${rows.length} of ${a.total}`} disablePrevious />
+      {result && (
+        <>
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>User</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>Details</th>
+                  <th>IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.items.map((row) => (
+                  <tr key={row.id}>
+                    <td>{formatDateTime(row.createdAt)}</td>
+                    <td>{row.userEmail ?? (row.userId ? row.userId.slice(0, 8) : "Deleted account")}</td>
+                    <td>
+                      <Tag tone="outline">{row.action}</Tag>
+                    </td>
+                    <td>
+                      {row.entityType}
+                      <div className="fnote">{row.entityId}</div>
+                    </td>
+                    <td>
+                      {row.details == null ? (
+                        "—"
+                      ) : (
+                        <details>
+                          <summary>Show</summary>
+                          <pre style={{ margin: 0, fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                            {formatPayload(row.details)}
+                          </pre>
+                        </details>
+                      )}
+                    </td>
+                    <td>{row.ipAddress ?? "—"}</td>
+                  </tr>
+                ))}
+                {result.items.length === 0 && (
+                  <tr>
+                    <td colSpan={6}>
+                      <div className="state-view">No audit entry matches these filters.</div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            showing={showingRange(result)}
+            onPrevious={() => setPage((p) => p - 1)}
+            onNext={() => setPage((p) => p + 1)}
+            disablePrevious={result.page <= 1}
+            disableNext={result.page >= result.totalPages}
+          />
+        </>
+      )}
     </Screen>
   );
 }

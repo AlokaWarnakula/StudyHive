@@ -60,11 +60,12 @@ describe("App routing", () => {
   const CATALOG: [string, string, StaffRole, string][] = [
     ["W-02", "/", "Librarian", "Dashboard"],
     ["W-03", "/approvals", "Librarian", "Approvals"],
-    ["W-04", "/approvals/REQ-1042", "Librarian", "REQ-1042 · Group project meeting"],
+    // Live screens title themselves from the API; until it answers they show a generic title.
+    ["W-04", "/approvals/REQ-1042", "Librarian", "Review proposal"],
     ["W-05", "/quotations/QT-0308", "Librarian", "Quotation QT-0308"],
     ["W-06", "/workflows/WF-2291", "Librarian", "Workflow WF-2291"],
     ["W-07", "/workflows", "Librarian", "Workflow runs"],
-    ["W-08", "/audit-log", "Librarian", "Audit log"],
+    ["W-08", "/audit-log", "Admin", "Audit log"],
     ["W-09", "/reports", "Librarian", "Reports"],
     ["W-13", "/rooms", "Librarian", "Rooms"],
     ["W-14", "/rooms/B-204", "Librarian", "Room B-204"],
@@ -111,6 +112,19 @@ describe("App routing", () => {
     expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
   });
 
+  // S4 screens are gated exactly as their APIs are: the audit log is Admin-only, approvals Librarian-only.
+  it("denies a Librarian the Admin-only audit log", () => {
+    signIn("Librarian");
+    renderAt("/audit-log");
+    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+  });
+
+  it("denies an Admin the Librarian-only approvals", () => {
+    signIn("Admin");
+    renderAt("/approvals");
+    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+  });
+
   it("keeps Users and Settings for Admin only", () => {
     signIn("Librarian");
     renderAt("/users");
@@ -151,9 +165,12 @@ describe("Sidebar navigation", () => {
     renderAt("/");
     const nav = screen.getByRole("navigation", { name: "Main" });
 
-    for (const label of ["Approvals", "Requests", "Rooms", "Consumables", "Reports", "Users", "Settings"]) {
+    for (const label of ["Requests", "Rooms", "Consumables", "Reports", "Audit log", "Users", "Settings"]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
+    // The approvals and workflow APIs are Librarian-only, so an Admin gets no dead-end links to them.
+    expect(within(nav).queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Workflow runs" })).not.toBeInTheDocument();
   });
 
   it("navigates from the sidebar to another screen", () => {

@@ -1,157 +1,162 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { listApprovals, type ApprovalQueueStatus } from "../../api/approvals";
 import { Screen } from "../../components/AppShell";
-import { FixtureNotice, NotBuiltYet, Select, Tag, TagOf, Toolbar } from "../../components/ui";
-import { useFixture } from "../../dev/useFixture";
+import { Pagination, Select, Tag, Toolbar } from "../../components/ui";
+import { useAuthStore } from "../../store/authStore";
+import { formatDateTime, formatMoney, humanize, showingRange, statusTone, useLoad } from "./s4";
+
+const STATUS_OPTIONS = ["Pending", "Approved", "Rejected", "Revision requested", "All"] as const;
+const STATUS_VALUES: Record<(typeof STATUS_OPTIONS)[number], ApprovalQueueStatus | undefined> = {
+  Pending: "Pending",
+  Approved: "Approved",
+  Rejected: "Rejected",
+  "Revision requested": "RevisionRequested",
+  All: undefined,
+};
+
+const SORT_OPTIONS = ["Oldest first", "Newest first", "Highest total"] as const;
+const SORT_VALUES: Record<(typeof SORT_OPTIONS)[number], { sortBy: string; sortDir: "asc" | "desc" }> = {
+  "Oldest first": { sortBy: "createdAt", sortDir: "asc" },
+  "Newest first": { sortBy: "createdAt", sortDir: "desc" },
+  "Highest total": { sortBy: "totalAmount", sortDir: "desc" },
+};
+
+const PAGE_SIZE = 20;
 
 /**
- * W-03 · Approval queue — GET /api/approvals?status=Pending, with search, filter, sort and
- * bulk selection. Owned by S4.
+ * W-03 · Approval queue — GET /api/approvals, one row per quotation. The API always lists pending
+ * quotations first; the sort orders within that. Each row opens W-04, where the decision is made.
  */
 export function ApprovalQueuePage() {
-  const fixture = useFixture((f) => f.approvals);
+  const token = useAuthStore((s) => s.accessToken);
   const navigate = useNavigate();
+  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]>("Pending");
+  const [sort, setSort] = useState<(typeof SORT_OPTIONS)[number]>("Oldest first");
+  const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
 
-  if (!fixture.enabled) {
-    return (
-      <Screen title="Approvals" crumb="Waiting for a decision">
-        <NotBuiltYet owner="S4 approvals" what="The approval queue" />
-      </Screen>
-    );
-  }
-
-  const term = search.trim().toLowerCase();
-  const rows = term
-    ? fixture.data.filter((r) => `${r.student} ${r.purpose} ${r.id}`.toLowerCase().includes(term))
-    : fixture.data;
-
-  const allSelected = rows.length > 0 && rows.every((r) => selected.includes(r.id));
-
-  function toggle(id: string) {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  }
+  const params = { status: STATUS_VALUES[status], search: search || undefined, page, pageSize: PAGE_SIZE, ...SORT_VALUES[sort] };
+  const queue = useLoad(
+    () => (token ? listApprovals(token, params) : null),
+    JSON.stringify(params),
+    "Failed to load the approval queue.",
+  );
+  const result = queue.data;
 
   return (
-    <Screen title="Approvals" crumb={`${fixture.data.length} waiting`}>
-      <FixtureNotice owner="S4" what="The approval queue" />
-
+    <Screen
+      title="Approvals"
+      crumb={result ? `${result.totalItems} ${status === "All" ? "in total" : status.toLowerCase()}` : "Waiting for a decision"}
+    >
       <Toolbar>
-        <input
-          className="input"
-          style={{ maxWidth: 280 }}
-          placeholder="Search student or purpose"
-          aria-label="Search student or purpose"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <form
+          style={{ display: "flex", gap: 8 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSearch(searchDraft.trim());
+            setPage(1);
+          }}
+        >
+          <input
+            className="input"
+            style={{ maxWidth: 280 }}
+            placeholder="Search the student's objective"
+            aria-label="Search the student's objective"
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+          />
+          <button type="submit" className="btn btn-secondary">Search</button>
+        </form>
+        <Select
+          label="Status"
+          options={STATUS_OPTIONS}
+          value={status}
+          onChange={(v) => {
+            setStatus(v as (typeof STATUS_OPTIONS)[number]);
+            setPage(1);
+          }}
         />
-        <Select label="Status" options={["Pending", "All", "Over budget", "Revision asked"]} />
-        <Select label="Sort" options={["Oldest first", "Newest first", "Highest total"]} />
-        <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }}>
-          Export CSV
-        </button>
+        <Select label="Sort" options={SORT_OPTIONS} value={sort} onChange={(v) => setSort(v as (typeof SORT_OPTIONS)[number])} />
       </Toolbar>
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Tag tone="accent">Pending 6</Tag>
-        <Tag tone="outline">Over budget 2</Tag>
-        <Tag tone="outline">Revision asked 1</Tag>
-      </div>
+      {queue.error && <p role="alert" className="form-error">{queue.error}</p>}
+      {queue.loading && !result && <div className="state-view">Loading…</div>}
 
-      <div className="table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <th style={{ width: 34 }}>
-                <input
-                  type="checkbox"
-                  aria-label="Select all requests"
-                  checked={allSelected}
-                  onChange={() => setSelected(allSelected ? [] : rows.map((r) => r.id))}
-                />
-              </th>
-              <th>Request</th>
-              <th>Student</th>
-              <th>Room · time</th>
-              <th>Items</th>
-              <th>Total</th>
-              <th>Budget</th>
-              <th>AI checks</th>
-              <th>Waiting</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${r.id}`}
-                    checked={selected.includes(r.id)}
-                    onChange={() => toggle(r.id)}
-                  />
-                </td>
-                <td>
-                  <b>{r.id}</b>
-                  <div className="fnote">{r.purpose}</div>
-                </td>
-                <td>
-                  {r.student}
-                  {r.studentNote && <div className="fnote">{r.studentNote}</div>}
-                </td>
-                <td>
-                  {r.room}
-                  <div className="fnote">{r.slot}</div>
-                </td>
-                <td>{r.items}</td>
-                <td>
-                  <b>{r.total}</b>
-                </td>
-                <td>
-                  <TagOf tag={r.budget} />
-                </td>
-                <td>
-                  <TagOf tag={r.aiChecks} />
-                </td>
-                <td>{r.waiting}</td>
-                <td>
-                  {/* The oldest request is the one the queue wants decided, so it gets the primary
-                      button — exactly as the reference frame shows. */}
-                  <button
-                    type="button"
-                    className={i === 0 ? "btn btn-primary" : "btn btn-secondary"}
-                    onClick={() => navigate(`/approvals/${r.id}`)}
-                  >
-                    Review
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={10}>
-                  <div className="state-view">No request matches “{search}”.</div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {result && (
+        <>
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Objective</th>
+                  <th>People</th>
+                  <th>Room fee</th>
+                  <th>Items</th>
+                  <th>Total</th>
+                  <th>Budget</th>
+                  <th>Status</th>
+                  <th>Quoted</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {result.items.map((row) => (
+                  <tr key={row.quotationId}>
+                    <td>
+                      <b>{row.objective}</b>
+                      <div className="fnote">Version {row.version}</div>
+                    </td>
+                    <td>{row.groupSize}</td>
+                    <td>{formatMoney(row.roomFee, row.currency)}</td>
+                    <td>{formatMoney(row.consumableCost, row.currency)}</td>
+                    <td>
+                      <b>{formatMoney(row.totalAmount, row.currency)}</b>
+                    </td>
+                    <td>
+                      <Tag tone={row.withinBudget ? "accent" : "outline"}>
+                        {row.withinBudget ? "Within budget" : "Over budget"}
+                      </Tag>
+                      <div className="fnote">{formatMoney(row.budgetSnapshot, row.currency)}</div>
+                    </td>
+                    <td>
+                      <Tag tone={row.status === "Pending" ? "neutral" : statusTone(row.status)}>{humanize(row.status)}</Tag>
+                    </td>
+                    <td>{formatDateTime(row.createdAt)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className={row.status === "Pending" ? "btn btn-primary" : "btn btn-secondary"}
+                        onClick={() => navigate(`/approvals/${row.quotationId}`)}
+                      >
+                        {row.status === "Pending" ? "Review" : "Open"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {result.items.length === 0 && (
+                  <tr>
+                    <td colSpan={9}>
+                      <div className="state-view">
+                        {search ? `No quotation matches “${search}”.` : "Nothing here — the queue is clear."}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="bar" style={{ borderTop: "1px solid var(--color-divider)", paddingTop: 12 }}>
-        <span className="fnote">{selected.length} selected</span>
-        <button type="button" className="btn btn-primary" disabled={selected.length === 0}>
-          Approve selected
-        </button>
-        <button type="button" className="btn btn-secondary" disabled={selected.length === 0}>
-          Reject selected
-        </button>
-        <span className="fnote" style={{ marginLeft: "auto" }}>
-          Showing 1–{rows.length} of {fixture.data.length}
-        </span>
-      </div>
+          <Pagination
+            showing={showingRange(result)}
+            onPrevious={() => setPage((p) => p - 1)}
+            onNext={() => setPage((p) => p + 1)}
+            disablePrevious={result.page <= 1}
+            disableNext={result.page >= result.totalPages}
+          />
+        </>
+      )}
     </Screen>
   );
 }
