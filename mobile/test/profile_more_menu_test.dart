@@ -30,9 +30,60 @@ class InMemoryTokenStore implements TokenStore {
 }
 
 void main() {
-  testWidgets('Profile reaches the seeded booking history and cost preview',
-      (tester) async {
+  testWidgets('Profile reaches the live booking history with costs', (
+    tester,
+  ) async {
     final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/booking-requests') {
+        // The student's own requests, as the API scopes them; only costed ones are history.
+        Map<String, dynamic> row(
+          String id,
+          String objective,
+          Object? quotation,
+        ) => {
+          'id': id,
+          'studentId': 'profile-1',
+          'objective': objective,
+          'groupSize': 3,
+          'preferredDateFrom': '2026-09-20',
+          'preferredDateTo': '2026-09-20',
+          'preferredTimeFrom': '10:00:00',
+          'preferredTimeTo': '12:00:00',
+          'sessionsRequired': 1,
+          'sessionDurationMinutes': 120,
+          'budget': 1000,
+          'notes': null,
+          'status': quotation == null ? 'Processing' : 'Approved',
+          'items': [],
+          'latestWorkflowId': null,
+          'latestQuotation': quotation,
+          'latestDecision': null,
+          'createdAt': '2026-09-19T08:00:00Z',
+          'updatedAt': '2026-09-19T08:00:00Z',
+        };
+        return http.Response(
+          jsonEncode({
+            'items': [
+              row('r-1', 'Group study', {
+                'id': 'q-1',
+                'status': 'Approved',
+                'version': 1,
+                'totalAmount': 300,
+                'currency': 'LKR',
+                'budgetSnapshot': 1000,
+                'withinBudget': true,
+              }),
+              row('r-2', 'Not priced yet', null),
+            ],
+            'page': 1,
+            'pageSize': 100,
+            'totalItems': 2,
+            'totalPages': 1,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
       if (request.url.path == '/api/student-profiles/me') {
         return http.Response(
           jsonEncode({
@@ -51,23 +102,30 @@ void main() {
         );
       }
       throw Exception(
-          'unexpected request: ${request.method} ${request.url.path}');
+        'unexpected request: ${request.method} ${request.url.path}',
+      );
     });
 
     final authProvider = AuthProvider(
-        apiClient: ApiClient(client: mockClient),
-        tokenStore: InMemoryTokenStore());
+      apiClient: ApiClient(client: mockClient),
+      tokenStore: InMemoryTokenStore(),
+    );
 
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: authProvider),
           ChangeNotifierProvider(
-              create: (_) =>
-                  ProfileProvider(StudentProfilesApi(authProvider.apiClient))),
+            create:
+                (_) =>
+                    ProfileProvider(StudentProfilesApi(authProvider.apiClient)),
+          ),
           ChangeNotifierProvider(
-              create: (_) => BookingRequestsProvider(
-                  BookingRequestsApi(authProvider.apiClient))),
+            create:
+                (_) => BookingRequestsProvider(
+                  BookingRequestsApi(authProvider.apiClient),
+                ),
+          ),
           ChangeNotifierProvider(create: (_) => consumablesProviderFor()),
         ],
         child: const MaterialApp(home: Scaffold(body: ProfileScreen())),
@@ -82,6 +140,9 @@ void main() {
 
     expect(find.byType(BookingHistoryScreen), findsOneWidget);
     expect(find.text('Group study'), findsOneWidget);
+    expect(find.text('Not priced yet'), findsNothing);
+    expect(find.text('Approved spend'), findsOneWidget);
+    expect(find.text('Rs. 300'), findsWidgets);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
