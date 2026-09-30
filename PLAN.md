@@ -19,7 +19,7 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 | **S1** Requests & Workflow + Planner | ✅ | ✅ Planner | ✅ W-10/11/12 | ✅ | ✅ | Done |
 | **S2** Rooms & Availability + Scheduling | ✅ | ✅ Scheduling | ✅ W-13…18 | ✅ M-09/10/11/14/15 | ✅ | Done |
 | **S3** Consumables & Stock + Resource | ✅ incl. usage report (Day 1) | ✅ Resource (real, wired in) | ✅ W-19…24 live (Day 1) | ✅ browse/detail/picker, linked into booking (Day 1) | ✅ API CRUD/auth/validation + concurrency + `chk_never_oversold` tests | Done |
-| **S4** Costing, Validation, Approval & Audit | ✅ approvals (one transaction), quotations, workflow executions, audit logs, bookings report (Day 2) | ✅ Validation (real, wired in; Day 2) | ❌ 7 pages on fixtures | ❌ 3 screens are shells | ✅ API: approval transaction, rollback, 403/409, read endpoints; agent golden cases | Backend done, screens next |
+| **S4** Costing, Validation, Approval & Audit | ✅ approvals (one transaction), quotations, workflow executions, audit logs, bookings report (Day 2) | ✅ Validation (real, wired in; Day 2) | ✅ W-03…09 + dashboard live (Day 3) | ✅ quotation, approval status, booking history live (Day 3) | ✅ API: approval transaction, rollback, 403/409, read endpoints; agent golden cases; web + mobile screen tests | Done |
 | Email (Brevo) | ❌ table exists, nothing sends | | | | | Optional — cut first |
 | Deploy (Railway), APK, ADRs | ❌ | | | | | Not started |
 
@@ -32,6 +32,9 @@ web lint + **55** tests + build, mobile analyze + **52** tests (`flutter test --
 
 After Day 2 (S4 backend, PRs #8–#11 merged on 29 Sep, `main` @ `2098bcb`): API **166**, agent **87**,
 web lint + **55** tests + build, mobile analyze + **52** tests — all green, reviewed by Codex.
+
+After Day 3 (S4 screens, PRs #13–#17 merged on 30 Sep, `main` @ `ccac85b`): API **171**, agent **87**,
+web lint + **72** tests + build, mobile analyze + **57** tests — all green, reviewed by Codex.
 
 **The one thing that matters most:** the headline workflow (Flutter submit → agents → **librarian
 approves on React** → room booked + stock reserved → Flutter shows Confirmed) is broken at the
@@ -196,27 +199,37 @@ API
 
 ### Day 3 — Thu 2 Oct: **S4 screens**
 
-**Next step (30 Sep):** the real-agent gate above was reviewed and approved by Codex and committed on branch `s4/e2e-gate` (`fix(s2): register the Scheduling agent client like the other agent clients`: `PLAN.md`, `Program.cs`, `AgentClientWiringTests.cs` (new), `DevDataSeederTests.cs`). It is in PR #13, CI green; merge it into `main`. Then start the web client card below (`s4/web-approvals-client`, cut from the new `main`).
+**Done 30 Sep** (one branch and PR per card, each reviewed by Codex): #13 Scheduling client fix, #14 web approvals client, #15 live web screens, #16 `latestQuotation`/`latestDecision` on the student's `GET /api/booking-requests` (the student's only route to their quotation and decision), #17 live mobile screens. **Next step:** Day 4.
 
 Web (`web/src/pages/approvals/`, `reports/`; client `web/src/api/approvals.ts` already typed)
-- ⚠️ `web/src/api/approvals.ts` was written before the API and **does not match it**. `submitApprovalDecision` must send `{ quotationId, decision, comments }` (not `bookingRequestId`/`reason`). `listApprovals` returns queue items keyed by quotation (`status`: Pending/Approved/Rejected/RevisionRequested). The workflow, audit and report shapes are in the controllers under `api/src/StudyHive.Api/Controllers/Approvals/`. Fix the client first.
-- [ ] W-03 `ApprovalQueuePage.tsx` — pending proposals
-- [ ] W-04 `ReviewProposalPage.tsx` — full proposal (slot, items, validation results, quotation) + Approve / Reject / Request revision with comments; show 409 errors clearly
-- [ ] W-05 `QuotationDetailPage.tsx` — line items, totals, budget comparison
-- [ ] W-06 `WorkflowExecutionPage.tsx` — step-by-step timeline with agent/tool logs
-- [ ] W-07 `ExecutionHistoryPage.tsx`
-- [ ] W-08 `AuditLogPage.tsx` — search/filter by action/entity/user
-- [ ] W-09 `ReportsPage.tsx` — booking stats, room usage, consumable trends
-- [ ] `DashboardPage.tsx` — real counts from the read endpoints
-- [ ] 3+ Vitest tests
+- ✅ Fixed in #14: `web/src/api/approvals.ts` was written before the API and **did not match it**. `submitApprovalDecision` must send `{ quotationId, decision, comments }` (not `bookingRequestId`/`reason`). `listApprovals` returns queue items keyed by quotation (`status`: Pending/Approved/Rejected/RevisionRequested). The workflow, audit and report shapes are in the controllers under `api/src/StudyHive.Api/Controllers/Approvals/`. Fix the client first.
+- [x] W-03 `ApprovalQueuePage.tsx` — pending proposals
+- [x] W-04 `ReviewProposalPage.tsx` — full proposal (slot, items, validation results, quotation) + Approve / Reject / Request revision with comments; show 409 errors clearly
+- [x] W-05 `QuotationDetailPage.tsx` — line items, totals, budget comparison
+- [x] W-06 `WorkflowExecutionPage.tsx` — step-by-step timeline with agent/tool logs
+- [x] W-07 `ExecutionHistoryPage.tsx`
+- [x] W-08 `AuditLogPage.tsx` — search/filter by action/entity/user
+- [x] W-09 `ReportsPage.tsx` — booking stats, room usage, consumable trends
+- [x] `DashboardPage.tsx` — real counts from the read endpoints
+- [x] 3+ Vitest tests (`ApprovalPages.test.tsx`, `approvals.test.ts`; web 55 → 72)
 
 Mobile (`mobile/lib/screens/quotation/`, client `quotations_api.dart` has TODOs)
-- [ ] M-08 `quotation_view_screen.dart` — cost breakdown
-- [ ] `approval_status_screen.dart` — status + librarian comments
-- [ ] `booking_history_screen.dart` — past bookings with costs
-- [ ] 3+ widget tests
+- [x] M-08 `quotation_view_screen.dart` — cost breakdown
+- [x] `approval_status_screen.dart` — status + librarian comments
+- [x] `booking_history_screen.dart` — past bookings with costs
+- [x] 3+ widget tests (`quotation_screens_test.dart`, `profile_more_menu_test.dart`; mobile 52 → 57)
 
 **Exit gate:** librarian approves on web → student's phone shows Approved/Confirmed with the quotation.
+
+✅ Met 30 Sep, from `main` @ `ccac85b`, with nothing faked:
+
+- **Setup:** Docker `studyhive-db` with demo data; real agent on `:8001` (Grok); API `dotnet run --launch-profile http` (`:5299`); web `npm run dev` (`:5173`); mobile `flutter build web --dart-define=API_BASE_URL=http://localhost:5299` served on `:8090` in a 375×812 phone viewport.
+- **Student:** a fresh student (registered + profile via the API) created request `125c65e2…` (group 4, Tue 6 Oct 09:00–12:00, 1 × 120 min, budget 500, 2 × Whiteboard markers) and submitted it. All 4 agent steps passed → `PendingApproval` with quotation `da8d0113…` (`Proposed`, total 120.00 LKR, within budget).
+- **Web (librarian):** signed in → Approvals showed it as `1 pending` → Review showed the proposed slot (Quiet Study 101, 6 Oct 09:00–11:00), both line items, totals vs budget, and 5 validation checks all Pass → *Approve booking* with a comment → page shows Approved, decided by Librarian.
+- **Phone (the same student):** Home shows the booking as next, `Approved`, with *Check in with QR*; Bookings → Active lists it `Approved`; its detail shows the 4 steps Pass; **Approval status** shows Approved, "Your room is booked and your items are reserved" and the librarian's comment; **Cost breakdown** shows quotation version 1 `Approved`: Whiteboard markers 2 = Rs. 120, Quiet Study 101 2 h = Rs. 0, total Rs. 120, budget Rs. 500, within budget by Rs. 380.
+- **Database:** request, quotation and workflow `Approved`; `room_bookings` `Confirmed` 6 Oct 03:30–05:30 UTC linked from the Room line; 2 × markers `Reserved`; `approval_decisions` Approved; `audit_logs` `QuotationApproved`. Left in the dev DB as demo data.
+- **Suites afterwards:** API **171**, agent **87**, web lint + **72** tests + build, mobile analyze + **57** tests (`--concurrency=1`): all green.
+- **Cosmetic, for Day 4:** the mobile cost-breakdown card has a fixed `Proposed` label above "Quotation · version 1", even when the chip beside it says `Approved`.
 
 ### Day 4 — Fri 3 Oct: **full run-through + Railway deploy**
 - [ ] Manual E2E on local: student (mobile) submits → watch workflow → librarian approves (web) → mobile Confirmed → QR check-in. Also: ineligible student (422), clashing slot, low-stock item, over-budget, hostile objective, workflow failure (stop the agent service → Failed with error code).
