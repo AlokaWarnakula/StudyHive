@@ -196,10 +196,14 @@ builder.Services.AddHttpClient<IPlannerClient, PlannerClient>(client =>
     }
 });
 
+// S2: same agent service, same base URL/key — route /scheduling/propose (behind the internal key).
 builder.Services.AddHttpClient<ISchedulingAgentClient, SchedulingAgentClient>(client =>
 {
-    var agentBaseUrl = builder.Configuration["Agent:BaseUrl"] ?? "http://localhost:8000";
-    client.BaseAddress = new Uri(agentBaseUrl);
+    client.BaseAddress = new Uri(agentOptions.BaseUrl);
+    if (!string.IsNullOrWhiteSpace(agentOptions.InternalApiKey))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Api-Key", agentOptions.InternalApiKey);
+    }
 });
 
 // S3: same agent service, same base URL/key — just a different route (/resource/prepare-reservation).
@@ -225,7 +229,6 @@ builder.Services.AddHttpClient<IValidationClient, ValidationClient>(client =>
 builder.Services.AddScoped<IBookingEligibilityService, BookingEligibilityService>();
 builder.Services.AddScoped<IRoomBookingService, RoomBookingService>();
 builder.Services.AddScoped<IWorkflowOrchestrationService, WorkflowOrchestrationService>();
-builder.Services.AddScoped<ISchedulingAgentClient, SchedulingAgentClient>();
 builder.Services.AddScoped<IConsumableStockService, ConsumableStockService>(); // S3: consumables & stock
 builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();

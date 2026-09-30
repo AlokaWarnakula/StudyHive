@@ -87,8 +87,10 @@ public class DevDataSeederTests(WebApplicationFactory<Program> factory)
         (await db.WorkflowExecutions.CountAsync(w => workflowIds.Contains(w.Id))).Should().Be(6);
         (await db.WorkflowStepLogs.CountAsync(s => stepIds.Contains(s.Id))).Should().Be(20);
 
+        // Drift stock upwards: a dev database that has been used for a real approval holds Reserved
+        // markers, and chk_never_oversold rejects stock below reserved (stock is 42 here, so 49 is safe).
         consumables[0].UnitPrice = 1m;
-        consumables[0].StockQuantity = 1;
+        consumables[0].StockQuantity = 49;
         await db.SaveChangesAsync();
 
         await DevDataSeeder.SeedAsync(scope.ServiceProvider);
