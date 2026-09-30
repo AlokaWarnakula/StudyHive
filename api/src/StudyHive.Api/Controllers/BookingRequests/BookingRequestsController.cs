@@ -131,11 +131,20 @@ public sealed class BookingRequestsController(
         requests = sorted;
 
         var totalItems = await requests.CountAsync(ct);
-        var items = await requests
+        var page = await requests
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(r => BookingRequestResponse.From(r, null))
             .ToListAsync(ct);
+
+        // Summaries only for the rows already filtered to what this caller may see.
+        var summaries = await LoadS4SummariesAsync(page.Select(r => r.Id).ToList(), ct);
+        var items = page
+            .Select(r =>
+            {
+                var (quotation, decision) = summaries.GetValueOrDefault(r.Id);
+                return BookingRequestResponse.From(r, null, quotation, decision);
+            })
+            .ToList();
 
         return Ok(PagedResult<BookingRequestResponse>.Create(items, query.Page, query.PageSize, totalItems));
     }
@@ -158,7 +167,8 @@ public sealed class BookingRequestsController(
             .Select(w => (Guid?)w.Id)
             .FirstOrDefaultAsync(ct);
 
-        return Ok(BookingRequestResponse.From(bookingRequest, latestWorkflowId));
+        var (latestQuotation, latestDecision) = (await LoadS4SummariesAsync([id], ct)).GetValueOrDefault(id);
+        return Ok(BookingRequestResponse.From(bookingRequest, latestWorkflowId, latestQuotation, latestDecision));
     }
 
     [HttpPut("{id:guid}")]
@@ -327,6 +337,70 @@ public sealed class BookingRequestsController(
         }
 
         return Ok(WorkflowStatusResponse.From(execution));
+    }
+
+    /// <summary>For each request id: its newest non-Draft quotation (highest version) and the newest
+    /// librarian decision on that same quotation, or null when it has none. A decision on an older
+    /// version is never paired with a newer one, so a student is not shown a stale rejection for a
+    /// proposal still waiting. Two queries for the whole page. Callers pass only ids they have
+    /// already authorised; nothing here widens what a caller can see.</summary>
+    private async Task<Dictionary<Guid, (BookingQuotationSummaryResponse? Quotation, BookingDecisionSummaryResponse? Decision)>>
+        LoadS4SummariesAsync(IReadOnlyCollection<Guid> requestIds, CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, (BookingQuotationSummaryResponse?, BookingDecisionSummaryResponse?)>();
+        if (requestIds.Count == 0) return result;
+
+        var quotations = await db.Quotations.AsNoTracking()
+            .Where(q => requestIds.Contains(q.BookingRequestId) && q.Status != QuotationStatus.Draft)
+            .Select(q => new
+            {
+                q.BookingRequestId,
+                Summary = new BookingQuotationSummaryResponse
+                {
+                    Id = q.Id,
+                    Status = q.Status,
+                    Version = q.Version,
+                    TotalAmount = q.TotalAmount,
+                    Currency = q.Currency,
+                    BudgetSnapshot = q.BudgetSnapshot,
+                    WithinBudget = q.WithinBudget,
+                },
+                q.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        var decisions = await db.ApprovalDecisions.AsNoTracking()
+            .Where(d => requestIds.Contains(d.Quotation.BookingRequestId))
+            .Select(d => new
+            {
+                d.QuotationId,
+                Summary = new BookingDecisionSummaryResponse
+                {
+                    Decision = d.Decision,
+                    Comments = d.Comments,
+                    DecidedAt = d.DecidedAt,
+                },
+            })
+            .ToListAsync(ct);
+
+        foreach (var requestId in requestIds)
+        {
+            var quotation = quotations
+                .Where(q => q.BookingRequestId == requestId)
+                .OrderByDescending(q => q.Summary.Version)
+                .ThenByDescending(q => q.CreatedAt)
+                .Select(q => q.Summary)
+                .FirstOrDefault();
+            var decision = quotation is null
+                ? null
+                : decisions
+                    .Where(d => d.QuotationId == quotation.Id)
+                    .OrderByDescending(d => d.Summary.DecidedAt)
+                    .Select(d => d.Summary)
+                    .FirstOrDefault();
+            result[requestId] = (quotation, decision);
+        }
+        return result;
     }
 
     private async Task<StudentProfile?> GetOwnStudentProfileAsync(CancellationToken ct)

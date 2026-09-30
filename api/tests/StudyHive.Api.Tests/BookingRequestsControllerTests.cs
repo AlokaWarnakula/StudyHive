@@ -1012,6 +1012,185 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         }
         throw new TimeoutException($"Workflow for request {requestId} did not reach a terminal status within {timeout}.");
     }
+
+    /// <summary>Seeds, for one request: version 1 Rejected with a RevisionRequested decision, version 2
+    /// (Proposed, or Approved with its own decision when <paramref name="decideLatest"/>), and a
+    /// version 3 Draft the student must never be pointed at. Returns the version-2 id. The decisions
+    /// are removed by <see cref="DeleteDecisionsAsync"/>, because approval_decisions is RESTRICT on
+    /// both quotations and users.</summary>
+    private async Task<Guid> SeedQuotationHistoryAsync(Guid requestId, Guid librarianId, bool decideLatest = false)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        Quotation Quote(int version, QuotationStatus status, decimal consumableCost) => new()
+        {
+            Id = Guid.NewGuid(),
+            BookingRequestId = requestId,
+            Version = version,
+            RoomFee = 0m,
+            ConsumableCost = consumableCost,
+            BudgetSnapshot = 50m,
+            Status = status,
+            CreatedAt = now.AddMinutes(version),
+            UpdatedAt = now.AddMinutes(version),
+        };
+        var rejected = Quote(1, QuotationStatus.Rejected, 80m);
+        var proposed = Quote(2, decideLatest ? QuotationStatus.Approved : QuotationStatus.Proposed, 40m);
+        db.Quotations.AddRange(rejected, proposed, Quote(3, QuotationStatus.Draft, 10m));
+        if (decideLatest)
+        {
+            db.ApprovalDecisions.Add(new ApprovalDecision
+            {
+                Id = Guid.NewGuid(),
+                QuotationId = proposed.Id,
+                DecidedBy = librarianId,
+                DecidedByRole = "Librarian",
+                Decision = ApprovalDecisionType.Approved,
+                Comments = "Confirmed, keep the room tidy",
+                DecidedAt = now.AddMinutes(3),
+            });
+        }
+        db.ApprovalDecisions.Add(new ApprovalDecision
+        {
+            Id = Guid.NewGuid(),
+            QuotationId = rejected.Id,
+            DecidedBy = librarianId,
+            DecidedByRole = "Librarian",
+            Decision = ApprovalDecisionType.RevisionRequested,
+            Comments = "Over budget: drop some markers",
+            DecidedAt = now.AddMinutes(1),
+        });
+        await db.SaveChangesAsync();
+        return proposed.Id;
+    }
+
+    private async Task DeleteDecisionsAsync(Guid requestId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+        await db.ApprovalDecisions.Where(d => d.Quotation.BookingRequestId == requestId).ExecuteDeleteAsync();
+    }
+
+    [Fact]
+    public async Task Request_Has_No_Quotation_Or_Decision_Before_One_Is_Proposed()
+    {
+        var client = factory.CreateClient();
+        await CreateEligibleStudentAsync(client);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var createdBody = await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions);
+
+        var detail = await client.GetFromJsonAsync<BookingRequestS4Shape>($"/api/booking-requests/{createdBody!.Id}", TestSupport.JsonOptions);
+
+        detail!.LatestQuotation.Should().BeNull();
+        detail.LatestDecision.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Student_And_Librarian_See_The_Latest_Quotation_Without_An_Older_Versions_Decision()
+    {
+        var client = factory.CreateClient();
+        var (_, studentToken, _) = await CreateEligibleStudentAsync(client);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var requestId = (await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions))!.Id;
+        var (librarianId, _, librarianToken) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Librarian);
+        _createdUserIds.Add(librarianId);
+        var proposedId = await SeedQuotationHistoryAsync(requestId, librarianId);
+
+        try
+        {
+            foreach (var token in new[] { studentToken, librarianToken })
+            {
+                client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+
+                var detail = await client.GetFromJsonAsync<BookingRequestS4Shape>($"/api/booking-requests/{requestId}", TestSupport.JsonOptions);
+                var listed = (await client.GetFromJsonAsync<PagedResultShape<BookingRequestS4Shape>>(
+                    "/api/booking-requests?pageSize=100", TestSupport.JsonOptions))!.Items.Single(r => r.Id == requestId);
+
+                foreach (var body in new[] { detail!, listed })
+                {
+                    // The newest non-Draft version, never the Draft behind it.
+                    body.LatestQuotation!.Id.Should().Be(proposedId);
+                    body.LatestQuotation.Version.Should().Be(2);
+                    body.LatestQuotation.Status.Should().Be("Proposed");
+                    body.LatestQuotation.TotalAmount.Should().Be(40m);
+                    body.LatestQuotation.BudgetSnapshot.Should().Be(50m);
+                    body.LatestQuotation.WithinBudget.Should().BeTrue();
+                    body.LatestQuotation.Currency.Should().Be("LKR");
+                    // Version 2 is undecided: version 1's RevisionRequested must not be carried over.
+                    body.LatestDecision.Should().BeNull();
+                }
+            }
+        }
+        finally
+        {
+            await DeleteDecisionsAsync(requestId);
+        }
+    }
+
+    [Fact]
+    public async Task Latest_Decision_Is_The_Decision_On_The_Latest_Quotation()
+    {
+        var client = factory.CreateClient();
+        await CreateEligibleStudentAsync(client);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var requestId = (await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions))!.Id;
+        var (librarianId, _, _) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Librarian);
+        _createdUserIds.Add(librarianId);
+        var approvedId = await SeedQuotationHistoryAsync(requestId, librarianId, decideLatest: true);
+
+        try
+        {
+            var detail = await client.GetFromJsonAsync<BookingRequestS4Shape>($"/api/booking-requests/{requestId}", TestSupport.JsonOptions);
+            var listed = (await client.GetFromJsonAsync<PagedResultShape<BookingRequestS4Shape>>(
+                "/api/booking-requests?pageSize=100", TestSupport.JsonOptions))!.Items.Single(r => r.Id == requestId);
+
+            foreach (var body in new[] { detail!, listed })
+            {
+                body.LatestQuotation!.Id.Should().Be(approvedId);
+                body.LatestQuotation.Status.Should().Be("Approved");
+                body.LatestDecision!.Decision.Should().Be("Approved");
+                body.LatestDecision.Comments.Should().Be("Confirmed, keep the room tidy");
+            }
+        }
+        finally
+        {
+            await DeleteDecisionsAsync(requestId);
+        }
+    }
+
+    [Fact]
+    public async Task Another_Student_Cannot_Reach_A_Quotation_Or_Decision_Through_Booking_Requests()
+    {
+        var client = factory.CreateClient();
+        await CreateEligibleStudentAsync(client);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var requestId = (await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions))!.Id;
+        var (librarianId, _, _) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Librarian);
+        _createdUserIds.Add(librarianId);
+        var proposedId = await SeedQuotationHistoryAsync(requestId, librarianId);
+
+        try
+        {
+            var (otherUser, _, otherToken) = await TestSupport.CreateAndLoginStudentAsync(client);
+            _createdUserIds.Add(otherUser.Id);
+            await TestSupport.CreateStudentProfileAsync(client, otherToken);
+            client.DefaultRequestHeaders.Authorization = new("Bearer", otherToken);
+
+            var detail = await client.GetAsync($"/api/booking-requests/{requestId}");
+            detail.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await detail.Content.ReadAsStringAsync()).Should().NotContain(proposedId.ToString());
+
+            var list = await client.GetStringAsync("/api/booking-requests?pageSize=100");
+            list.Should().NotContain(requestId.ToString());
+            list.Should().NotContain(proposedId.ToString());
+            list.Should().NotContain("Over budget: drop some markers");
+        }
+        finally
+        {
+            await DeleteDecisionsAsync(requestId);
+        }
+    }
 }
 
 internal sealed class BookingRequestResponseShape
@@ -1059,4 +1238,29 @@ internal sealed class FakeResourceClient : IResourceClient
             Items = []
         });
     }
+}
+
+internal sealed class BookingRequestS4Shape
+{
+    public Guid Id { get; init; }
+    public BookingQuotationSummaryShape? LatestQuotation { get; init; }
+    public BookingDecisionSummaryShape? LatestDecision { get; init; }
+}
+
+internal sealed class BookingQuotationSummaryShape
+{
+    public Guid Id { get; init; }
+    public string Status { get; init; } = "";
+    public int Version { get; init; }
+    public decimal TotalAmount { get; init; }
+    public string Currency { get; init; } = "";
+    public decimal BudgetSnapshot { get; init; }
+    public bool WithinBudget { get; init; }
+}
+
+internal sealed class BookingDecisionSummaryShape
+{
+    public string Decision { get; init; } = "";
+    public string? Comments { get; init; }
+    public DateTimeOffset DecidedAt { get; init; }
 }
