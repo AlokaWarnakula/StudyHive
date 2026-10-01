@@ -1,0 +1,17 @@
+.env
+.env.*
+*.env
+.venv/
+venv/
+tests/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+requirements-dev.txt
+.vscode/
+.idea/
+Dockerfile
+.dockerignore

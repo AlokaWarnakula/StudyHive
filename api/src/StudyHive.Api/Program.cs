@@ -237,11 +237,21 @@ var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+// A fresh production database (Railway, the Docker image) gets its schema on start. Off by default
+// in Development: the test suite runs in Development against one shared, already-migrated database
+// from many parallel factories, and local dev uses `dotnet ef database update`.
+if (StartupMigrations.ShouldRun(app.Configuration, app.Environment))
+{
+    using var migrateScope = app.Services.CreateScope();
+    await migrateScope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().Database.MigrateAsync();
+}
+
+// Swagger is part of the deliverable on the live API too (PLAN.md §5: /swagger must load).
+app.UseSwagger();
+app.UseSwaggerUI();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
     using var seedScope = app.Services.CreateScope();
     await DevDataSeeder.SeedAsync(seedScope.ServiceProvider);
 }
@@ -257,3 +267,16 @@ app.Run();
 
 // Exposed for WebApplicationFactory<Program> in integration tests.
 public partial class Program { }
+
+/// <summary>
+/// Decides whether the API applies EF migrations on start. Config <c>Database:MigrateOnStartup</c>
+/// (env <c>Database__MigrateOnStartup</c>) wins; unset, it is on outside Development and off in
+/// Development, where tests share one pre-migrated database across parallel factories.
+/// </summary>
+public static class StartupMigrations
+{
+    public const string ConfigKey = "Database:MigrateOnStartup";
+
+    public static bool ShouldRun(IConfiguration configuration, IHostEnvironment environment) =>
+        configuration.GetValue<bool?>(ConfigKey) ?? !environment.IsDevelopment();
+}

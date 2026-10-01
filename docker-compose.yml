@@ -17,5 +17,69 @@ services:
       timeout: 5s
       retries: 10
 
+  # Full local stack: `docker compose up -d --build`, then web on http://localhost:8081 and the API on
+  # http://localhost:8080 (Swagger at /swagger). `docker compose up -d db` still starts only Postgres.
+  #
+  # This is a local Development stack: it reuses the committed dev-only values (dev JWT key, dev
+  # internal key, seeded logins from ACCOUNTS.md) by mounting appsettings.Development.json, which the
+  # API image itself never contains. Real secrets are never written here; the only optional input is
+  # the Grok key, read at run time from agent/.env. Production (Railway) passes everything as env.
+  agent:
+    build: ./agent
+    container_name: studyhive-agent
+    restart: unless-stopped
+    env_file:
+      - path: ./agent/.env
+        required: false
+    environment:
+      ENVIRONMENT: development
+      # Must equal Agent:InternalApiKey in api/src/StudyHive.Api/appsettings.Development.json.
+      INTERNAL_API_KEY: dev-only-internal-key-DO-NOT-USE-IN-PRODUCTION
+      PORT: "8001"
+    # No published port: like Railway, only the API reaches the agent (http://agent:8001).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    container_name: studyhive-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      PORT: "8080"
+      ConnectionStrings__Default: Host=db;Port=5432;Database=studyhive;Username=studyhive;Password=studyhive_dev
+      Database__MigrateOnStartup: "true"
+      Agent__BaseUrl: http://agent:8001
+      Cors__AllowedOrigins__0: http://localhost:8081
+      Cors__AllowedOrigins__1: http://localhost:5173
+      Cors__AllowedOrigins__2: http://localhost:8090
+    volumes:
+      - ./api/src/StudyHive.Api/appsettings.Development.json:/app/appsettings.Development.json:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Compiled into the bundle; the browser calls the API through the published port.
+        VITE_API_BASE_URL: http://localhost:8080
+    container_name: studyhive-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8081:8080"
+
 volumes:
   studyhive-db-data:

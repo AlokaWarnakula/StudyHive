@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+tests/
+**/*.user
+.vs/
+.vscode/
+.idea/
+**/.env
+**/.env.*
+**/*.env
+# Dev-only signing key, internal key and seed passwords stay out of the image.
+**/appsettings.Development.json
+**/Properties/launchSettings.json
+Dockerfile
+.dockerignore
