@@ -27,10 +27,11 @@ nothing faked.
 | S3 Consumables & Stock + Resource | ✅ Done |
 | S4 Costing, Validation, Approval & Audit (API, agent, web, mobile) | ✅ Done |
 | Email (Brevo) | ❌ Table exists, nothing is queued or sent. **Decided: build it (Day 4).** |
-| Deploy (Railway), APK | ❌ Not started. **No Dockerfiles and no `mobile/android/` folder exist yet.** |
+| Dockerfiles (api, agent, web) + compose stack | 🟡 Built and verified locally; PR + CI pending (Day 4 Task 1) |
+| Deploy (Railway), APK | ❌ Not started. **No `mobile/android/` folder exists yet.** |
 | README, ADRs, screenshots, k6, report, video | ❌ Not started |
 
-Test baseline (must stay green): API **171**, agent **87**, web lint + **72** tests + build,
+Test baseline (must stay green): API **178**, agent **87**, web lint + **72** tests + build,
 mobile analyze + **57** tests (`flutter test --concurrency=1`).
 
 History of what was built and how is in git (PRs #7–#18) and in the previous version of this file
@@ -75,7 +76,7 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 
 | # | Task | Branch | When | Done when |
 |---|---|---|---|---|
-| 0 | Commit this plan | `docs/plan-remaining` | Wed | Plan merged to `main` |
+| ✅ 0 | Commit this plan | `docs/plan-remaining` | Wed | Plan merged to `main` |
 | 1 | Dockerfiles (api, agent, web) | `infra/dockerfiles` | Wed | All three run locally in Docker against the Docker DB |
 | 2 | Email queue | `s3/email` | Wed–Thu | Approval queues one email; rolled-back approval queues none |
 | 3 | Email sender | `s3/email` | Thu | Sent / retry / Failed / no-key tests green |
@@ -85,16 +86,16 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 | 6 | Full run-through + small leftovers | small fix branches | Fri | Happy path + every failure case run, each bug fixed with a test |
 
 **Task 1 — Dockerfiles.** Branch `infra/dockerfiles`.
-- [ ] `api/Dockerfile`: multi-stage .NET 8 (sdk build → aspnet runtime), listens on `$PORT`
+- [x] `api/Dockerfile`: multi-stage .NET 8 (sdk build → aspnet runtime), listens on `$PORT`
       (default 8080). The API does **not** apply migrations on start today (only the dev seeder
       runs): add a startup `Database.MigrateAsync()` (or an equivalent entrypoint step) so a fresh
       production DB gets the schema, without breaking the test suite.
-- [ ] `agent/Dockerfile`: Python 3.11 slim, `requirements.txt` only (not dev), uvicorn on
+- [x] `agent/Dockerfile`: Python 3.11 slim, `requirements.txt` only (not dev), uvicorn on
       `0.0.0.0:${PORT:-8001}`.
-- [ ] `web/Dockerfile`: `npm ci && npm run build` with `VITE_API_BASE_URL` as a build arg → small
+- [x] `web/Dockerfile`: `npm ci && npm run build` with `VITE_API_BASE_URL` as a build arg → small
       static server (e.g. nginx) with SPA fallback to `index.html`, listening on `$PORT`.
-- [ ] `.dockerignore` for each (`bin/`, `obj/`, `node_modules/`, `dist/`, `.venv/`, `.env`, tests).
-- [ ] Add `api`, `agent`, `web` services to `docker-compose.yml` (db stays as is) and verify:
+- [x] `.dockerignore` for each (`bin/`, `obj/`, `node_modules/`, `dist/`, `.venv/`, `.env`, tests).
+- [x] Add `api`, `agent`, `web` services to `docker-compose.yml` (db stays as is) and verify:
       `/health`, `/swagger`, web login, and one workflow reaches the agent. Secrets come from env,
       never baked into images.
 - [ ] Full test suite still green; CI green.
@@ -184,6 +185,9 @@ transaction, the Validation agent, the concurrency/overlap/injection tests.
 ## 4. Local setup (Docker + demo data)
 
 ```bash
+# Whole stack in Docker (dev logins, live agent): web http://localhost:8081, API http://localhost:8080/swagger
+docker compose up -d --build
+# Or run each piece yourself:
 docker compose up -d db                                   # Postgres 16 on 127.0.0.1:5432
 cd api && dotnet ef database update --project src/StudyHive.Api
 cd api/src/StudyHive.Api && dotnet run --launch-profile http   # http://localhost:5299 (Swagger at /swagger), seeds logins
