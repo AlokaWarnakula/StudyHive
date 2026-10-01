@@ -11,7 +11,7 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 
 ---
 
-## 1. Where we are (30 Sep 2026, `main` @ `8bbf1d7`)
+## 1. Where we are (1 Oct 2026, `main` @ `49d92a5`)
 
 **All features are built, and the headline workflow works for real:** the student submits on
 mobile → Planner, Scheduling, Resource and Validation agents run → a quotation is written → the
@@ -26,7 +26,7 @@ nothing faked.
 | S2 Rooms & Availability + Scheduling | ✅ Done |
 | S3 Consumables & Stock + Resource | ✅ Done |
 | S4 Costing, Validation, Approval & Audit (API, agent, web, mobile) | ✅ Done |
-| Email (Brevo) | ❌ Table exists, nothing is queued or sent. **Decided: build it (Day 4).** |
+| Email (Brevo) | ❌ Table exists, nothing is queued or sent. **Next: Tasks 2–3.** Brevo account, verified sender and API key are ready (in the root `.env`). |
 | Dockerfiles (api, agent, web) + compose stack | ✅ Done (Day 4 Task 1, PR #20) |
 | Deploy (Railway), APK | ❌ Not started. **No `mobile/android/` folder exists yet.** |
 | README, ADRs, screenshots, k6, report, video | ❌ Not started |
@@ -34,7 +34,7 @@ nothing faked.
 Test baseline (must stay green): API **178**, agent **87**, web lint + **72** tests + build,
 mobile analyze + **57** tests (`flutter test --concurrency=1`).
 
-History of what was built and how is in git (PRs #7–#18) and in the previous version of this file
+History of what was built and how is in git (PRs #7–#21) and in the previous version of this file
 (`git show 8bbf1d7:PLAN.md`).
 
 ---
@@ -118,7 +118,9 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
       sender marks Sent; retries then Failed after 3 attempts; no key → nothing sent.
 - [ ] **Mobile copy:** "You will get a notification" (`create_request_screen.dart`,
       `approval_status_screen.dart`) → say "email".
-- [ ] **Human (before the check):** create a free Brevo account, verify a sender address, create an API key.
+- [x] **Human (before the check):** create a free Brevo account, verify a sender address, create an API key.
+      Done 1 Oct: `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName=StudyHive` are in the root
+      `.env` (gitignored). No custom domain: a single verified sender, good enough for testing; check Spam.
 - [ ] **Check:** full suite green, then approve one request locally with the real key and confirm the email arrives.
 
 **Task 4 — Android APK.** Branch `mobile/android`.
