@@ -266,6 +266,7 @@ public sealed class WorkflowOrchestrationService(
             if (!validationResponse.Valid)
             {
                 await ReleasePendingReservationsAsync(bookingRequest, ct);
+                await QueueValidationFailedEmailAsync(bookingRequest, ct);
                 await FailAsync(execution, bookingRequest, "VALIDATION_FAILED",
                     validationResponse.RevisionNote ?? string.Join(" ", validationResponse.Failures), ct);
                 return;
@@ -697,6 +698,19 @@ public sealed class WorkflowOrchestrationService(
             reservation.ReleasedAt = now;
             reservation.UpdatedAt = now;
         }
+    }
+
+    /// <summary>Queues the student's VALIDATION_FAILED email. Saved by the FailAsync that follows, in
+    /// the same SaveChangesAsync as the Failed status, so the email exists only if the failure
+    /// committed. The body (the revision note) is rendered from the workflow at send time.</summary>
+    private async Task QueueValidationFailedEmailAsync(BookingRequest bookingRequest, CancellationToken ct)
+    {
+        var studentEmail = await db.StudentProfiles
+            .Where(p => p.Id == bookingRequest.StudentId)
+            .Select(p => p.User.Email)
+            .SingleAsync(ct);
+        db.EmailNotifications.Add(EmailNotification.ForBookingRequest(
+            studentEmail, EmailTemplates.BookingValidationFailed, bookingRequest.Id, DateTimeOffset.UtcNow));
     }
 
     private async Task FailAsync(WorkflowExecution execution, BookingRequest bookingRequest, string errorCode, string errorMessage, CancellationToken ct)

@@ -352,7 +352,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
           ],
         ),
         const FNote(
-            'We will find a free room, price it and send it to the librarian for approval. You will get a notification.'),
+            'We will find a free room, price it and send it to the librarian for approval. You will get an email when they decide.'),
         if (_error != null) InlineError(_error!),
         PrimaryButton(
           _submitting ? 'Sending…' : 'Send request',

@@ -673,7 +673,7 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         await CreateSchedulingRoomAsync(localFactory, roomId, hourlyRate: 100m);
         var consumableId = await CreateConsumableAsync(localFactory, unitPrice: 1m, stock: 20);
 
-        var (user, _, token) = await TestSupport.CreateAndLoginStudentAsync(client);
+        var (user, studentEmail, token) = await TestSupport.CreateAndLoginStudentAsync(client);
         userIds.Add(user.Id);
         await TestSupport.CreateStudentProfileAsync(client, token);
         client.DefaultRequestHeaders.Authorization = new("Bearer", token);
@@ -698,6 +698,16 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
             reservation.Status.Should().Be(StockReservationStatus.Released);
             reservation.ReleasedAt.Should().NotBeNull();
             (await db.Consumables.AsNoTracking().SingleAsync(c => c.Id == consumableId)).ReservedQuantity.Should().Be(0);
+
+            // The student is emailed exactly once, queued with the Failed status; the revision note
+            // is rendered from the workflow at send time, so the row stores no body.
+            var email = (await db.EmailNotifications.AsNoTracking().Where(e => e.BookingRequestId == requestId).ToListAsync())
+                .Should().ContainSingle().Subject;
+            email.ToEmail.Should().Be(studentEmail);
+            email.Template.Should().Be("BookingValidationFailed");
+            email.Subject.Should().Be("Your StudyHive booking request could not be validated");
+            email.Status.Should().Be(EmailNotificationStatus.Queued);
+            email.AttemptCount.Should().Be(0);
         }
 
         await TestSupport.CleanupAsync(localFactory, userIds.ToArray());
@@ -729,6 +739,12 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
         var limits = localFactory.Services.GetRequiredService<IOptions<WorkflowLimitsOptions>>().Value;
         validation.Calls.Should().Be(limits.MaxRetriesPerStep + 1);
         await AssertNoQuotationAsync(localFactory, requestId);
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            (await db.EmailNotifications.AnyAsync(e => e.BookingRequestId == requestId))
+                .Should().BeFalse("only VALIDATION_FAILED emails the student; an agent outage does not");
+        }
 
         await TestSupport.CleanupAsync(localFactory, userIds.ToArray());
         await DeleteSchedulingRoomAsync(localFactory, roomId);

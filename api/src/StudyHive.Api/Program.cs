@@ -233,7 +233,14 @@ builder.Services.AddScoped<IConsumableStockService, ConsumableStockService>(); /
 builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 
+// S3: the Brevo email sender. Off without Brevo:ApiKey + Brevo:SenderEmail, and nothing else depends on it.
+var emailSenderEnabled = builder.Services.AddEmailSender(builder.Configuration);
+
 var app = builder.Build();
+
+app.Logger.LogInformation(emailSenderEnabled
+    ? "Email sender on: queued emails are sent through Brevo."
+    : "Email sender off: Brevo:ApiKey or Brevo:SenderEmail is not set, so queued emails stay Queued.");
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 

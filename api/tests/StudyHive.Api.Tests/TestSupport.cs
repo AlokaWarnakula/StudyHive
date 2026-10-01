@@ -107,6 +107,9 @@ internal static class TestSupport
             {
                 // quotations.booking_request_id is RESTRICT; its line items cascade with it.
                 await db.Quotations.Where(q => requestIds.Contains(q.BookingRequestId)).ExecuteDeleteAsync();
+                // email_notifications.booking_request_id is SET NULL; delete them rather than leave
+                // orphaned Queued rows behind for the sender.
+                await db.EmailNotifications.Where(e => e.BookingRequestId != null && requestIds.Contains(e.BookingRequestId.Value)).ExecuteDeleteAsync();
                 db.WorkflowExecutions.RemoveRange(db.WorkflowExecutions.Where(w => requestIds.Contains(w.BookingRequestId)));
                 await db.SaveChangesAsync();
                 db.BookingRequests.RemoveRange(db.BookingRequests.Where(r => requestIds.Contains(r.Id)));

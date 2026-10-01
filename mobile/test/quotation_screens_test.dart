@@ -161,6 +161,26 @@ void main() {
     expect(find.text('No quotation yet'), findsOneWidget);
   });
 
+  testWidgets('approval status promises an email while the quotation awaits a decision', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(const ApprovalStatusScreen(requestId: 'r-1'), {
+        '/api/booking-requests/r-1': requestJson(
+          latestQuotation: quotationSummary(),
+        ),
+        '/api/booking-requests/r-1/status': workflowJson(),
+      }),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('You will get an email as soon as they decide.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('notification'), findsNothing);
+  });
+
   testWidgets('approval status shows the librarian decision and comment', (
     tester,
   ) async {

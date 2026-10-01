@@ -78,6 +78,10 @@ void main() {
     expect(find.text('STEP 3 OF 3 · CHECK AND SEND'), findsOneWidget);
     expect(find.text('Presentation practice'), findsOneWidget);
     expect(find.text('Send request'), findsOneWidget);
+    // The decision reaches the student by email (S3), not a push notification.
+    expect(find.textContaining('You will get an email when they decide.'),
+        findsOneWidget);
+    expect(find.textContaining('notification'), findsNothing);
   });
 
   testWidgets('M-08 quotation shows the cost breakdown and budget tile',
