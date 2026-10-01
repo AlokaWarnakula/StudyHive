@@ -28,6 +28,9 @@ namespace StudyHive.Api.Controllers.Approvals;
 /// oversell is a 409 and nothing is written. The quotation row is locked FOR UPDATE first, so two
 /// librarians deciding the same quotation at once serialize and the second gets a 409.
 ///
+/// Every decision also queues the student's email_notifications row inside that same transaction,
+/// so an email exists only if the decision committed.
+///
 /// The queue is keyed by quotation id: a quotation awaiting a decision has no decision row yet.
 /// </summary>
 [ApiController]
@@ -156,6 +159,14 @@ public sealed class ApprovalsController(
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             CreatedAt = now,
         });
+
+        // The student's email, queued in this transaction: it exists only if the decision commits.
+        var studentEmail = await db.StudentProfiles
+            .Where(p => p.Id == bookingRequest.StudentId)
+            .Select(p => p.User.Email)
+            .SingleAsync(ct);
+        db.EmailNotifications.Add(EmailNotification.ForBookingRequest(
+            studentEmail, EmailTemplates.ForDecision(decision), bookingRequest.Id, now));
 
         try
         {

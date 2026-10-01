@@ -415,6 +415,8 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         audit.EntityType.Should().Be("Quotation");
         audit.UserId.Should().Be(fx.LibrarianId);
         audit.Details.Should().Contain(bookings[0].Id.ToString()).And.Contain(reservations[0].Id.ToString());
+
+        await AssertOneQueuedEmailAsync(db, proposal.RequestId, "BookingApproved", "Your StudyHive booking is approved");
     }
 
     [Fact]
@@ -465,6 +467,7 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         var db = fx.Db(scope);
         (await db.ApprovalDecisions.CountAsync(d => d.QuotationId == proposal.QuotationId)).Should().Be(1);
         (await db.Quotations.SingleAsync(q => q.Id == proposal.QuotationId)).Status.Should().Be(QuotationStatus.Approved);
+        await AssertOneQueuedEmailAsync(db, proposal.RequestId, "BookingApproved", "Your StudyHive booking is approved");
     }
 
     [Fact]
@@ -483,13 +486,14 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         (await db.RoomBookings.CountAsync(b => b.BookingRequestId == proposal.RequestId)).Should().Be(1);
         (await db.ApprovalDecisions.CountAsync(d => d.QuotationId == proposal.QuotationId)).Should().Be(1);
         (await db.Consumables.AsNoTracking().SingleAsync(c => c.Id == markers)).ReservedQuantity.Should().Be(4);
+        (await db.EmailNotifications.CountAsync(e => e.BookingRequestId == proposal.RequestId)).Should().Be(1, "only the committed decision queues an email");
     }
 
     [Theory]
-    [InlineData("Rejected", BookingRequestStatus.Rejected, "QuotationRejected")]
-    [InlineData("RevisionRequested", BookingRequestStatus.RevisionRequested, "RevisionRequested")]
+    [InlineData("Rejected", BookingRequestStatus.Rejected, "QuotationRejected", "BookingRejected", "Your StudyHive booking request was rejected")]
+    [InlineData("RevisionRequested", BookingRequestStatus.RevisionRequested, "RevisionRequested", "BookingRevisionRequested", "Your StudyHive booking request needs changes")]
     public async Task Reject_Or_Revision_Updates_Statuses_Releases_Pending_Stock_And_Books_Nothing(
-        string decision, BookingRequestStatus expectedRequestStatus, string expectedAuditAction)
+        string decision, BookingRequestStatus expectedRequestStatus, string expectedAuditAction, string expectedTemplate, string expectedSubject)
     {
         var roomId = await fx.SeedRoomAsync();
         var markers = await fx.SeedConsumableAsync(stock: 10, unitPrice: 1m);
@@ -510,6 +514,7 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         var decisionRow = await db.ApprovalDecisions.SingleAsync(d => d.QuotationId == proposal.QuotationId);
         decisionRow.Comments.Should().Be("Please use a smaller room.");
         (await db.AuditLogs.SingleAsync(a => a.EntityId == proposal.QuotationId)).Action.Should().Be(expectedAuditAction);
+        await AssertOneQueuedEmailAsync(db, proposal.RequestId, expectedTemplate, expectedSubject);
     }
 
     [Theory]
@@ -655,6 +660,26 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         (await db.StockTransactions.AnyAsync(t => t.BookingRequestId == proposal.RequestId)).Should().BeFalse();
         (await db.ApprovalDecisions.AnyAsync(d => d.QuotationId == proposal.QuotationId)).Should().BeFalse();
         (await db.AuditLogs.AnyAsync(a => a.EntityId == proposal.QuotationId)).Should().BeFalse();
+        (await db.EmailNotifications.AnyAsync(e => e.BookingRequestId == proposal.RequestId)).Should().BeFalse("a rolled-back decision queues no email");
+    }
+
+    /// <summary>Exactly one Queued, never-attempted row for the request, addressed to its student.</summary>
+    private static async Task AssertOneQueuedEmailAsync(StudyHiveDbContext db, Guid requestId, string template, string subject)
+    {
+        var studentEmail = await db.BookingRequests.AsNoTracking()
+            .Where(r => r.Id == requestId)
+            .Select(r => r.Student.User.Email)
+            .SingleAsync();
+        var email = (await db.EmailNotifications.AsNoTracking().Where(e => e.BookingRequestId == requestId).ToListAsync())
+            .Should().ContainSingle().Subject;
+        email.ToEmail.Should().Be(studentEmail);
+        email.Template.Should().Be(template);
+        email.Subject.Should().Be(subject);
+        email.Status.Should().Be(EmailNotificationStatus.Queued);
+        email.AttemptCount.Should().Be(0);
+        email.NextAttemptAt.Should().BeNull();
+        email.SentAt.Should().BeNull();
+        email.ProviderMessageId.Should().BeNull();
     }
 
     /// <summary>A confirmed booking for some other request, inserted directly — the "someone else got

@@ -204,7 +204,7 @@ class _ApprovalStatusScreenState extends State<ApprovalStatusScreen> {
                 ),
           ),
         if (quotation?.status == 'Proposed')
-          const FNote('You will get a notification as soon as they decide.'),
+          const FNote('You will get an email as soon as they decide.'),
       ],
     );
   }
@@ -231,7 +231,7 @@ class _Preview extends StatelessWidget {
           ),
         ],
       ),
-      FNote('You will get a notification as soon as they decide.'),
+      FNote('You will get an email as soon as they decide.'),
     ],
   );
 }
