@@ -27,7 +27,7 @@ nothing faked.
 | S3 Consumables & Stock + Resource | ✅ Done |
 | S4 Costing, Validation, Approval & Audit (API, agent, web, mobile) | ✅ Done |
 | Email (Brevo) | ❌ Table exists, nothing is queued or sent. **Decided: build it (Day 4).** |
-| Dockerfiles (api, agent, web) + compose stack | 🟡 Built and verified locally; PR + CI pending (Day 4 Task 1) |
+| Dockerfiles (api, agent, web) + compose stack | ✅ Done (Day 4 Task 1, PR #20) |
 | Deploy (Railway), APK | ❌ Not started. **No `mobile/android/` folder exists yet.** |
 | README, ADRs, screenshots, k6, report, video | ❌ Not started |
 
@@ -77,7 +77,7 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 | # | Task | Branch | When | Done when |
 |---|---|---|---|---|
 | ✅ 0 | Commit this plan | `docs/plan-remaining` | Wed | Plan merged to `main` |
-| 1 | Dockerfiles (api, agent, web) | `infra/dockerfiles` | Wed | All three run locally in Docker against the Docker DB |
+| ✅ 1 | Dockerfiles (api, agent, web) | `infra/dockerfiles` | Wed | All three run locally in Docker against the Docker DB |
 | 2 | Email queue | `s3/email` | Wed–Thu | Approval queues one email; rolled-back approval queues none |
 | 3 | Email sender | `s3/email` | Thu | Sent / retry / Failed / no-key tests green |
 | ✔ | **Check before moving on** | — | Thu | Full suite green + one real email received through Brevo |
@@ -98,7 +98,7 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 - [x] Add `api`, `agent`, `web` services to `docker-compose.yml` (db stays as is) and verify:
       `/health`, `/swagger`, web login, and one workflow reaches the agent. Secrets come from env,
       never baked into images.
-- [ ] Full test suite still green; CI green.
+- [x] Full test suite still green; CI green.
 
 **Task 2 + 3 — Email (Brevo)** — required by the master plan (S3 "email integration"). Branch `s3/email`.
 - [ ] **Task 2, Queue:** write `email_notifications` rows (`Queued`) **inside the same transaction** as the
