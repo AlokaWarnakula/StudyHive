@@ -265,16 +265,40 @@ public sealed class WorkflowOrchestrationService(
             // notes are released, and the agent's revision note is what the student sees.
             if (!validationResponse.Valid)
             {
-                await ReleasePendingReservationsAsync(bookingRequest, ct);
+                // Saved by the FailAsync below, in the same SaveChangesAsync as the Failed status.
+                await stockService.ReleasePendingAsync(bookingRequest.Items.Select(i => i.Id).ToList(), ct);
                 await QueueValidationFailedEmailAsync(bookingRequest, ct);
                 await FailAsync(execution, bookingRequest, "VALIDATION_FAILED",
                     validationResponse.RevisionNote ?? string.Join(" ", validationResponse.Failures), ct);
                 return;
             }
 
+            // The student may have cancelled while the agents ran. The request row is locked (the
+            // same lock BookingRequestsController.Cancel and ApprovalsController.Create take) and
+            // re-read, so a cancelled request never comes back as PendingApproval with a quotation.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM booking_requests WHERE id = {bookingRequest.Id} FOR UPDATE", ct);
+            var currentStatus = await db.BookingRequests.AsNoTracking()
+                .Where(r => r.Id == bookingRequest.Id)
+                .Select(r => r.Status)
+                .SingleAsync(ct);
+            if (currentStatus == BookingRequestStatus.Cancelled)
+            {
+                await stockService.ReleasePendingAsync(bookingRequest.Items.Select(i => i.Id).ToList(), ct);
+                execution.Status = WorkflowStatus.Rejected;
+                execution.ErrorCode = BookingCancellation.ErrorCode;
+                execution.ErrorMessage = BookingCancellation.ErrorMessage;
+                execution.CompletedAt = DateTimeOffset.UtcNow;
+                execution.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+                return;
+            }
+
             // Added to the change tracker here and saved by the SaveChangesAsync below, together with
-            // the status change — one implicit transaction, so PendingApproval never exists without
-            // its quotation.
+            // the status change — one transaction, so PendingApproval never exists without its
+            // quotation.
             await AddProposedQuotationAsync(bookingRequest, validationResponse.Quotation, ct);
 
             execution.Status = WorkflowStatus.PendingApproval;
@@ -286,6 +310,7 @@ public sealed class WorkflowOrchestrationService(
             bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
 
             await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
         catch (OperationCanceledException) when (!outerCt.IsCancellationRequested)
         {
@@ -679,25 +704,6 @@ public sealed class WorkflowOrchestrationService(
                 CreatedAt = now,
             }).ToList(),
         });
-    }
-
-    /// <summary>Pending reservations never held stock (see CreatePendingReservationAsync), so
-    /// releasing them is a status change only — no reserved_quantity or ledger movement. Saved by
-    /// the FailAsync that follows, in the same SaveChangesAsync as the Failed status.</summary>
-    private async Task ReleasePendingReservationsAsync(BookingRequest bookingRequest, CancellationToken ct)
-    {
-        var itemIds = bookingRequest.Items.Select(i => i.Id).ToList();
-        var pending = await db.StockReservations
-            .Where(r => itemIds.Contains(r.BookingRequestItemId) && r.Status == StockReservationStatus.Pending)
-            .ToListAsync(ct);
-
-        var now = DateTimeOffset.UtcNow;
-        foreach (var reservation in pending)
-        {
-            reservation.Status = StockReservationStatus.Released;
-            reservation.ReleasedAt = now;
-            reservation.UpdatedAt = now;
-        }
     }
 
     /// <summary>Queues the student's VALIDATION_FAILED email. Saved by the FailAsync that follows, in

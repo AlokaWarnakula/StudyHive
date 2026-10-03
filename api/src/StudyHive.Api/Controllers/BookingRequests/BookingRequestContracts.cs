@@ -100,6 +100,9 @@ public sealed class BookingRequestResponse
     /// quotation is undecided (an older version's decision is never carried over). Carries the
     /// outcome and comments only, never who decided.</summary>
     public BookingDecisionSummaryResponse? LatestDecision { get; init; }
+    /// <summary>The rooms actually booked for this request (after approval), oldest slot first,
+    /// with their lifecycle status and check-in time. Empty before approval (AUDIT C-06, C-14).</summary>
+    public IReadOnlyList<BookingRoomBookingResponse> RoomBookings { get; init; } = [];
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
 
@@ -107,7 +110,8 @@ public sealed class BookingRequestResponse
         BookingRequest request,
         Guid? latestWorkflowId = null,
         BookingQuotationSummaryResponse? latestQuotation = null,
-        BookingDecisionSummaryResponse? latestDecision = null) => new()
+        BookingDecisionSummaryResponse? latestDecision = null,
+        IReadOnlyList<BookingRoomBookingResponse>? roomBookings = null) => new()
     {
         Id = request.Id,
         StudentId = request.StudentId,
@@ -126,9 +130,23 @@ public sealed class BookingRequestResponse
         LatestWorkflowId = latestWorkflowId,
         LatestQuotation = latestQuotation,
         LatestDecision = latestDecision,
+        RoomBookings = roomBookings ?? [],
         CreatedAt = request.CreatedAt,
         UpdatedAt = request.UpdatedAt,
     };
+}
+
+/// <summary>One room booking made for a request: where and when to go, and whether the student
+/// checked in.</summary>
+public sealed class BookingRoomBookingResponse
+{
+    public required Guid Id { get; init; }
+    public required Guid RoomId { get; init; }
+    public required string RoomName { get; init; }
+    public required DateTimeOffset StartsAt { get; init; }
+    public required DateTimeOffset EndsAt { get; init; }
+    public required RoomBookingStatus Status { get; init; }
+    public DateTimeOffset? CheckedInAt { get; init; }
 }
 
 /// <summary>The minimum a student needs to find and judge their quotation (S4).</summary>

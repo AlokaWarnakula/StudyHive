@@ -45,6 +45,8 @@ public class EmailNotification
 /// quotation total.</item>
 /// <item>BookingValidationFailed — the request's latest workflow execution error_message, which is
 /// the Validation agent's revision note.</item>
+/// <item>BookingCancelled — the request's cancelled room bookings (an Approved booking the student
+/// cancelled before it started).</item>
 /// </list>
 /// </summary>
 public static class EmailTemplates
@@ -53,6 +55,7 @@ public static class EmailTemplates
     public const string BookingRejected = "BookingRejected";
     public const string BookingRevisionRequested = "BookingRevisionRequested";
     public const string BookingValidationFailed = "BookingValidationFailed";
+    public const string BookingCancelled = "BookingCancelled";
 
     public static string SubjectFor(string template) => template switch
     {
@@ -60,6 +63,7 @@ public static class EmailTemplates
         BookingRejected => "Your StudyHive booking request was rejected",
         BookingRevisionRequested => "Your StudyHive booking request needs changes",
         BookingValidationFailed => "Your StudyHive booking request could not be validated",
+        BookingCancelled => "Your StudyHive booking is cancelled",
         _ => throw new ArgumentOutOfRangeException(nameof(template), template, "Unknown email template."),
     };
 

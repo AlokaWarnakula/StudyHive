@@ -15,6 +15,7 @@ namespace StudyHive.Api.Services;
 /// and the approved quotation total.</item>
 /// <item>BookingRejected / BookingRevisionRequested: the librarian's comment on the latest decision.</item>
 /// <item>BookingValidationFailed: the latest workflow's error_message, which is the revision note.</item>
+/// <item>BookingCancelled: the cancelled room bookings (room, Asia/Colombo time).</item>
 /// </list>
 /// Returns null when the row can never be rendered (its booking request is gone or the data it
 /// needs does not exist), and the dispatcher fails the row instead of retrying it.
@@ -43,6 +44,7 @@ public sealed class EmailRenderer(StudyHiveDbContext db)
             EmailTemplates.BookingRevisionRequested => await DecisionAsync(requestId, ApprovalDecisionType.RevisionRequested,
                 "A librarian asked you to change your booking request before it can be approved.", ct),
             EmailTemplates.BookingValidationFailed => await ValidationFailedAsync(requestId, ct),
+            EmailTemplates.BookingCancelled => await CancelledAsync(requestId, ct),
             _ => null,
         };
         if (paragraphs is null) return null;
@@ -131,6 +133,23 @@ public sealed class EmailRenderer(StudyHiveDbContext db)
             "Your booking request could not be approved as it stands, so it was not sent to a librarian.",
             $"What to change: {note.ErrorMessage ?? "See the app for details."}",
         ];
+    }
+
+    private async Task<List<string>?> CancelledAsync(Guid requestId, CancellationToken ct)
+    {
+        var bookings = await db.RoomBookings.AsNoTracking()
+            .Where(b => b.BookingRequestId == requestId && b.Status == RoomBookingStatus.Cancelled)
+            .OrderBy(b => b.StartsAt)
+            .Select(b => new { RoomName = b.Room.Name, b.StartsAt, b.EndsAt })
+            .ToListAsync(ct);
+        if (bookings.Count == 0) return null;
+
+        var slots = new StringBuilder("You cancelled your booking, so these room times are released:");
+        foreach (var booking in bookings)
+        {
+            slots.Append('\n').Append($"- {booking.RoomName}: {FormatSlot(booking.StartsAt, booking.EndsAt)}");
+        }
+        return [slots.ToString()];
     }
 
     private static string FormatSlot(DateTimeOffset startsAt, DateTimeOffset endsAt)
