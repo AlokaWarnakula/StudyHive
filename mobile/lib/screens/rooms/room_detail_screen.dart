@@ -95,7 +95,6 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           Kv('Seats', '${selected.capacity} people'),
           Kv('Rate', 'Rs. ${selected.hourlyRate.toStringAsFixed(0)} per hour'),
           if (preview) const Kv('Opening hours', '8 AM – 8 PM'),
-          Kv('QR code', selected.qrCode),
         ]),
         const Lbl('Equipment in this room'),
         if (selected.equipment.isEmpty)

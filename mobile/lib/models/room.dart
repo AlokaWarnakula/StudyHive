@@ -50,7 +50,9 @@ class RoomEquipmentType {
 }
 
 class RoomDetail extends RoomListItem {
-  final String qrCode;
+  /// Null for students: the API sends room QR codes to staff only, so the code can only be read
+  /// from the sticker at the door (AUDIT C-10).
+  final String? qrCode;
   final List<RoomEquipmentItem> equipment;
 
   const RoomDetail({
@@ -61,7 +63,7 @@ class RoomDetail extends RoomListItem {
     required super.hourlyRate,
     required super.isActive,
     super.availability,
-    required this.qrCode,
+    this.qrCode,
     required this.equipment,
   });
 }

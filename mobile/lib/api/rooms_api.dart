@@ -109,7 +109,7 @@ class RoomsApi {
       capacity: json['capacity'] as int,
       hourlyRate: (json['hourlyRate'] as num).toDouble(),
       isActive: json['isActive'] as bool,
-      qrCode: json['qrCode'] as String,
+      qrCode: json['qrCode'] as String?,
       equipment: equipment,
     );
   }

@@ -1,6 +1,8 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
@@ -22,8 +24,13 @@ namespace StudyHive.Api.Controllers.Rooms;
 [Authorize]
 public sealed class RoomBookingsController(
     StudyHiveDbContext db,
-    IRoomBookingService roomBookingService) : ControllerBase
+    IRoomBookingService roomBookingService,
+    IOptions<CheckInOptions> checkInOptions) : ControllerBase
 {
+    /// <summary>Asia/Colombo, a fixed UTC+05:30 with no daylight saving; used only for the times
+    /// shown in check-in messages.</summary>
+    private static readonly TimeSpan Colombo = TimeSpan.FromMinutes(330);
+
     /// <summary>Create a booking after approval. Called by the approval transaction, not by a client.</summary>
     [HttpPost]
     [Authorize(Policy = "StaffOnly")]
@@ -132,7 +139,18 @@ public sealed class RoomBookingsController(
             .ThenBy(b => b.StartsAt)
             .FirstOrDefaultAsync(ct);
 
-        if (booking is null) return NotFound();
+        if (booking is null)
+        {
+            // AUDIT C-12: the id is the caller's own booking request with a confirmed room booking,
+            // so the only thing wrong is the code — say so instead of a bare 404.
+            var ownerUserId = await db.BookingRequests.AsNoTracking()
+                .Where(r => r.Id == id && db.RoomBookings.Any(b => b.BookingRequestId == r.Id && b.Status == RoomBookingStatus.Confirmed))
+                .Select(r => (Guid?)r.Student.UserId)
+                .SingleOrDefaultAsync(ct);
+            if (ownerUserId is null) return NotFound();
+            if (ownerUserId != callerId) return Forbid();
+            return InvalidQrCode();
+        }
 
         if (booking.BookingRequest.Student.UserId != callerId)
         {
@@ -141,11 +159,7 @@ public sealed class RoomBookingsController(
 
         if (!string.Equals(booking.Room.QrCode, qrCode, StringComparison.Ordinal))
         {
-            return Problem(
-                type: "https://studyhive.dev/errors/validation",
-                title: "Invalid room QR code",
-                statusCode: StatusCodes.Status422UnprocessableEntity,
-                detail: "The scanned code does not match the room assigned to this booking.");
+            return InvalidQrCode();
         }
 
         if (booking.Status != RoomBookingStatus.Confirmed)
@@ -160,6 +174,20 @@ public sealed class RoomBookingsController(
         // A repeated mobile submission is safe: preserve the original check-in time and return it.
         if (booking.CheckedInAt is null)
         {
+            // AUDIT C-04: only from OpensMinutesBefore before the start until the end.
+            var now = DateTimeOffset.UtcNow;
+            var opensAt = booking.StartsAt.AddMinutes(-checkInOptions.Value.OpensMinutesBefore);
+            if (now < opensAt || now > booking.EndsAt)
+            {
+                return Problem(
+                    type: "https://studyhive.dev/errors/outside-check-in-window",
+                    title: "Check-in is not open",
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    detail: now < opensAt
+                        ? $"Check-in opens at {FormatColombo(opensAt)}, {checkInOptions.Value.OpensMinutesBefore} minutes before the booking starts."
+                        : $"This booking ended at {FormatColombo(booking.EndsAt)}.");
+            }
+
             booking.CheckedInAt = DateTimeOffset.UtcNow;
             booking.UpdatedAt = booking.CheckedInAt.Value;
             await db.SaveChangesAsync(ct);
@@ -167,4 +195,13 @@ public sealed class RoomBookingsController(
 
         return Ok(RoomCheckInResponse.From(booking));
     }
+
+    private ObjectResult InvalidQrCode() => Problem(
+        type: "https://studyhive.dev/errors/validation",
+        title: "Invalid room QR code",
+        statusCode: StatusCodes.Status422UnprocessableEntity,
+        detail: "The scanned code does not match the room assigned to this booking.");
+
+    private static string FormatColombo(DateTimeOffset instant) =>
+        instant.ToOffset(Colombo).ToString("HH:mm 'on' ddd d MMM", CultureInfo.InvariantCulture);
 }

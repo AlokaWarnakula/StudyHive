@@ -70,6 +70,7 @@ builder.Services.Configure<WorkflowLimitsOptions>(builder.Configuration.GetSecti
 builder.Services.Configure<DevSeedOptions>(builder.Configuration.GetSection(DevSeedOptions.SectionName));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.SectionName));
+builder.Services.Configure<CheckInOptions>(builder.Configuration.GetSection(CheckInOptions.SectionName));
 
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
 var jwtIssuer = jwtSection["Issuer"] ?? "studyhive-dev";

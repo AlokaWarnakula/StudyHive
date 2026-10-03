@@ -38,7 +38,7 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
     {
         var (client, profileId) = await CreateStudentClientAsync();
         var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed,
-            new DateTimeOffset(2035, 1, 10, 8, 0, 0, TimeSpan.Zero), 2);
+            DateTimeOffset.UtcNow.AddMinutes(5), 2); // inside the check-in window
 
         var response = await client.PostAsJsonAsync($"/api/room-bookings/{booking.BookingId}/check-in",
             new { qrCode = booking.QrCode });
@@ -58,7 +58,7 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
     {
         var (client, profileId) = await CreateStudentClientAsync();
         var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed,
-            new DateTimeOffset(2035, 1, 11, 8, 0, 0, TimeSpan.Zero), 2);
+            DateTimeOffset.UtcNow.AddMinutes(5), 2); // inside the check-in window
 
         var response = await client.PostAsJsonAsync($"/api/room-bookings/{booking.RequestId}/check-in",
             new { qrCode = booking.QrCode });
@@ -74,7 +74,7 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
     {
         var (client, profileId) = await CreateStudentClientAsync();
         var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed,
-            new DateTimeOffset(2035, 2, 10, 8, 0, 0, TimeSpan.Zero), 2);
+            DateTimeOffset.UtcNow.AddMinutes(5), 2); // inside the check-in window
 
         var response = await client.PostAsJsonAsync($"/api/room-bookings/{booking.BookingId}/check-in",
             new { qrCode = "wrong-room-code" });
@@ -106,6 +106,77 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
         report.NoShows.Should().Be(1);
         report.ByRoom.Single(r => r.RoomId == first.RoomId).UtilisationPercent.Should().Be(75m);
         report.BookingsByHour.Single(h => h.Hour == 8).BookingCount.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(120, "Check-in opens at")]   // starts in 2 h: too early
+    [InlineData(-180, "This booking ended at")] // started 3 h ago, 2 h long: over
+    public async Task Check_In_Outside_The_Window_Is_422(int startsInMinutes, string detail)
+    {
+        var (client, profileId) = await CreateStudentClientAsync();
+        var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed,
+            DateTimeOffset.UtcNow.AddMinutes(startsInMinutes), 2);
+
+        var response = await client.PostAsJsonAsync($"/api/room-bookings/{booking.BookingId}/check-in",
+            new { qrCode = booking.QrCode });
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("outside-check-in-window").And.Contain(detail);
+        using var scope = factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().RoomBookings
+            .SingleAsync(b => b.Id == booking.BookingId)).CheckedInAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Check_In_Opens_Fifteen_Minutes_Before_The_Start()
+    {
+        var (client, profileId) = await CreateStudentClientAsync();
+        var justInside = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(14), 1);
+        var justOutside = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(17), 1);
+
+        (await client.PostAsJsonAsync($"/api/room-bookings/{justInside.BookingId}/check-in", new { qrCode = justInside.QrCode }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PostAsJsonAsync($"/api/room-bookings/{justOutside.BookingId}/check-in", new { qrCode = justOutside.QrCode }))
+            .StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
+    public async Task A_Wrong_Code_Sent_With_The_Booking_Request_Id_Is_422_Not_404()
+    {
+        var (client, profileId) = await CreateStudentClientAsync();
+        var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, DateTimeOffset.UtcNow.AddMinutes(5), 2);
+
+        var response = await client.PostAsJsonAsync($"/api/room-bookings/{booking.RequestId}/check-in",
+            new { qrCode = "wrong-room-code" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid room QR code");
+
+        // Another student using that request id gets 403, not a hint about the code.
+        var (other, _) = await CreateStudentClientAsync();
+        (await other.PostAsJsonAsync($"/api/room-bookings/{booking.RequestId}/check-in", new { qrCode = "wrong-room-code" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Students_Never_Receive_Room_Qr_Codes_But_Staff_Do()
+    {
+        var (student, profileId) = await CreateStudentClientAsync();
+        var booking = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, DateTimeOffset.UtcNow.AddDays(30), 1);
+        var librarian = factory.CreateClient();
+        var (librarianId, _, token) = await TestSupport.CreateAndLoginStaffAsync(factory, librarian, UserRole.Librarian);
+        _userIds.Add(librarianId);
+        librarian.DefaultRequestHeaders.Authorization = new("Bearer", token);
+
+        var studentDetail = await student.GetStringAsync($"/api/rooms/{booking.RoomId}");
+        studentDetail.Should().Contain("\"qrCode\":null").And.NotContain(booking.QrCode);
+        (await student.GetStringAsync("/api/rooms?pageSize=100")).Should().NotContain(booking.QrCode);
+        var from = Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(60).ToString("O"));
+        var to = Uri.EscapeDataString(DateTimeOffset.UtcNow.AddDays(60).AddHours(1).ToString("O"));
+        (await student.GetStringAsync($"/api/rooms/available?from={from}&to={to}&pageSize=100")).Should().NotContain(booking.QrCode);
+
+        (await librarian.GetStringAsync($"/api/rooms/{booking.RoomId}")).Should().Contain(booking.QrCode);
     }
 
     private async Task<(HttpClient Client, Guid ProfileId)> CreateStudentClientAsync()
