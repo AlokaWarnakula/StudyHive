@@ -77,11 +77,22 @@ public sealed class WorkflowOrchestrationService(
 
         var bookingRequest = execution.BookingRequest;
 
-        execution.Status = WorkflowStatus.InProgress;
-        execution.UpdatedAt = DateTimeOffset.UtcNow;
-        bookingRequest.Status = BookingRequestStatus.Processing;
-        bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+        // The student may have cancelled between submit and this dequeue; never overwrite that.
+        await using (var startTransaction = await db.Database.BeginTransactionAsync(ct))
+        {
+            if (await EndIfCancelledAsync(execution, bookingRequest, ct))
+            {
+                await startTransaction.CommitAsync(ct);
+                return;
+            }
+
+            execution.Status = WorkflowStatus.InProgress;
+            execution.UpdatedAt = DateTimeOffset.UtcNow;
+            bookingRequest.Status = BookingRequestStatus.Processing;
+            bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            await startTransaction.CommitAsync(ct);
+        }
 
         try
         {
@@ -125,6 +136,13 @@ public sealed class WorkflowOrchestrationService(
 
             if (!plannerResponse.Eligible)
             {
+                await using var ineligibleTransaction = await db.Database.BeginTransactionAsync(ct);
+                if (await EndIfCancelledAsync(execution, bookingRequest, ct))
+                {
+                    await ineligibleTransaction.CommitAsync(ct);
+                    return;
+                }
+
                 execution.Status = WorkflowStatus.Rejected;
                 execution.ErrorCode = "INELIGIBLE";
                 execution.ErrorMessage = plannerResponse.Reasons.Count > 0
@@ -139,6 +157,7 @@ public sealed class WorkflowOrchestrationService(
                 bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
 
                 await db.SaveChangesAsync(ct);
+                await ineligibleTransaction.CommitAsync(ct);
                 return;
             }
 
@@ -273,25 +292,11 @@ public sealed class WorkflowOrchestrationService(
                 return;
             }
 
-            // The student may have cancelled while the agents ran. The request row is locked (the
-            // same lock BookingRequestsController.Cancel and ApprovalsController.Create take) and
-            // re-read, so a cancelled request never comes back as PendingApproval with a quotation.
+            // The student may have cancelled while the agents ran: a cancelled request never comes
+            // back as PendingApproval with a quotation.
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT 1 FROM booking_requests WHERE id = {bookingRequest.Id} FOR UPDATE", ct);
-            var currentStatus = await db.BookingRequests.AsNoTracking()
-                .Where(r => r.Id == bookingRequest.Id)
-                .Select(r => r.Status)
-                .SingleAsync(ct);
-            if (currentStatus == BookingRequestStatus.Cancelled)
+            if (await EndIfCancelledAsync(execution, bookingRequest, ct))
             {
-                await stockService.ReleasePendingAsync(bookingRequest.Items.Select(i => i.Id).ToList(), ct);
-                execution.Status = WorkflowStatus.Rejected;
-                execution.ErrorCode = BookingCancellation.ErrorCode;
-                execution.ErrorMessage = BookingCancellation.ErrorMessage;
-                execution.CompletedAt = DateTimeOffset.UtcNow;
-                execution.UpdatedAt = DateTimeOffset.UtcNow;
-                await db.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
                 return;
             }
@@ -719,8 +724,46 @@ public sealed class WorkflowOrchestrationService(
             studentEmail, EmailTemplates.BookingValidationFailed, bookingRequest.Id, DateTimeOffset.UtcNow));
     }
 
+    /// <summary>
+    /// Call inside an open transaction, before writing any status. Locks the request row (the lock
+    /// BookingRequestsController.Cancel and ApprovalsController.Create also take) and re-reads it.
+    /// If the student cancelled it, the request stays Cancelled: the workflow ends Rejected with
+    /// CANCELLED_BY_STUDENT, Pending reservations are released, any email queued for this run is
+    /// dropped, and this returns true — the caller commits and stops.
+    /// </summary>
+    private async Task<bool> EndIfCancelledAsync(WorkflowExecution execution, BookingRequest bookingRequest, CancellationToken ct)
+    {
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM booking_requests WHERE id = {bookingRequest.Id} FOR UPDATE", ct);
+        var cancelled = await db.BookingRequests.AsNoTracking()
+            .AnyAsync(r => r.Id == bookingRequest.Id && r.Status == BookingRequestStatus.Cancelled, ct);
+        if (!cancelled) return false;
+
+        foreach (var queued in db.ChangeTracker.Entries<EmailNotification>().Where(e => e.State == EntityState.Added).ToList())
+        {
+            queued.State = EntityState.Detached;
+        }
+        db.Entry(bookingRequest).State = EntityState.Unchanged;
+        await stockService.ReleasePendingAsync(bookingRequest.Items.Select(i => i.Id).ToList(), ct);
+
+        execution.Status = WorkflowStatus.Rejected;
+        execution.ErrorCode = BookingCancellation.ErrorCode;
+        execution.ErrorMessage = BookingCancellation.ErrorMessage;
+        execution.CompletedAt = DateTimeOffset.UtcNow;
+        execution.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     private async Task FailAsync(WorkflowExecution execution, BookingRequest bookingRequest, string errorCode, string errorMessage, CancellationToken ct)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        if (await EndIfCancelledAsync(execution, bookingRequest, ct))
+        {
+            await transaction.CommitAsync(ct);
+            return;
+        }
+
         execution.Status = WorkflowStatus.Failed;
         execution.ErrorCode = errorCode;
         execution.ErrorMessage = errorMessage;
@@ -731,6 +774,7 @@ public sealed class WorkflowOrchestrationService(
         bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     private async Task LogStepAsync(

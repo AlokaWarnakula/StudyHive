@@ -28,35 +28,33 @@ public sealed class BookingLifecycleService(StudyHiveDbContext db) : IBookingLif
 {
     public async Task<int> CloseEndedBookingsAsync(DateTimeOffset now, CancellationToken ct)
     {
-        var ended = await db.RoomBookings
-            .Where(b => b.Status == RoomBookingStatus.Confirmed && b.EndsAt <= now)
-            .ToListAsync(ct);
-        if (ended.Count == 0) return 0;
+        // Set-based: each statement decides and writes in one step, so a check-in that commits
+        // during the sweep is never marked NoShow (it is simply left Confirmed for the next sweep,
+        // which then closes it as Completed).
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        foreach (var booking in ended)
-        {
-            booking.Status = booking.CheckedInAt is null ? RoomBookingStatus.NoShow : RoomBookingStatus.Completed;
-            booking.UpdatedAt = now;
-        }
+        var completed = await db.RoomBookings
+            .Where(b => b.Status == RoomBookingStatus.Confirmed && b.EndsAt <= now && b.CheckedInAt != null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(b => b.Status, RoomBookingStatus.Completed)
+                .SetProperty(b => b.UpdatedAt, now), ct);
+        var noShows = await db.RoomBookings
+            .Where(b => b.Status == RoomBookingStatus.Confirmed && b.EndsAt <= now && b.CheckedInAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(b => b.Status, RoomBookingStatus.NoShow)
+                .SetProperty(b => b.UpdatedAt, now), ct);
 
-        // Not saved yet, so the database still shows the ended bookings as Confirmed: a request is
-        // finished when it has no Confirmed booking other than the ones closed here.
-        var endedIds = ended.Select(b => b.Id).ToList();
-        var requestIds = ended.Select(b => b.BookingRequestId).Distinct().ToList();
-        var finished = await db.BookingRequests
-            .Where(r => requestIds.Contains(r.Id) && r.Status == BookingRequestStatus.Approved)
-            .Where(r => !db.RoomBookings.Any(b => b.BookingRequestId == r.Id
-                && b.Status == RoomBookingStatus.Confirmed
-                && !endedIds.Contains(b.Id)))
-            .ToListAsync(ct);
-        foreach (var request in finished)
-        {
-            request.Status = BookingRequestStatus.Completed;
-            request.UpdatedAt = now;
-        }
+        // An Approved request with an ended booking and no Confirmed booking left is finished.
+        await db.BookingRequests
+            .Where(r => r.Status == BookingRequestStatus.Approved
+                && db.RoomBookings.Any(b => b.BookingRequestId == r.Id && b.EndsAt <= now)
+                && !db.RoomBookings.Any(b => b.BookingRequestId == r.Id && b.Status == RoomBookingStatus.Confirmed))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Status, BookingRequestStatus.Completed)
+                .SetProperty(r => r.UpdatedAt, now), ct);
 
-        await db.SaveChangesAsync(ct);
-        return ended.Count;
+        await transaction.CommitAsync(ct);
+        return completed + noShows;
     }
 }
 

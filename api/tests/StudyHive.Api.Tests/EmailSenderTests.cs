@@ -94,6 +94,32 @@ public class EmailSenderTests(ApprovalsFixture fx) : IClassFixture<ApprovalsFixt
     }
 
     [Fact]
+    public async Task A_Cancelled_Email_Lists_The_Released_Room_Times()
+    {
+        var roomId = await fx.SeedRoomAsync();
+        var proposal = await fx.SeedProposalAsync(roomId, sessions: 1, [], NextDays(1));
+        await DecideAsync(proposal.QuotationId, "Approved", null);
+        (await fx.Client(fx.StudentToken).DeleteAsync($"/api/booking-requests/{proposal.RequestId}"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = fx.Services.CreateScope();
+        var db = fx.Db(scope);
+        var email = await db.EmailNotifications.AsNoTracking()
+            .SingleAsync(e => e.BookingRequestId == proposal.RequestId && e.Template == "BookingCancelled");
+        var provider = new FakeEmailProvider();
+
+        (await Dispatcher(db, provider, new FakeClock(DateTimeOffset.UtcNow)).SendOneAsync(email.Id, CancellationToken.None)).Should().BeTrue();
+
+        var message = provider.Sent.Should().ContainSingle().Subject;
+        message.Subject.Should().Be("Your StudyHive booking is cancelled");
+        var room = await db.StudyRooms.AsNoTracking().SingleAsync(r => r.Id == roomId);
+        var start = proposal.Slots[0].StartsAt.ToOffset(TimeSpan.FromMinutes(330));
+        message.TextBody.Should()
+            .Contain("these room times are released")
+            .And.Contain($"- {room.Name}: {start.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture)}, 09:00–10:30");
+    }
+
+    [Fact]
     public async Task A_Failing_Provider_Backs_Off_Then_Fails_The_Row_After_Three_Attempts()
     {
         var roomId = await fx.SeedRoomAsync();
