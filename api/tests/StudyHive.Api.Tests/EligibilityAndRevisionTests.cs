@@ -176,6 +176,24 @@ public sealed class EligibilityAndRevisionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_Cancel_And_An_Edit_At_The_Same_Time_Never_Leave_The_Request_Editable()
+    {
+        var (client, _) = await NewStudentAsync();
+        var requestId = await CreateAsync(client, dayOffset: 8);
+
+        var cancel = client.DeleteAsync($"/api/booking-requests/{requestId}");
+        var edit = client.PutAsJsonAsync($"/api/booking-requests/{requestId}", Body(dayOffset: 8, quantity: 1));
+        await Task.WhenAll(cancel, edit);
+
+        (await cancel).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await edit).StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Conflict);
+        using var scope = factory.Services.CreateScope();
+        (await Db(scope).BookingRequests.AsNoTracking().SingleAsync(r => r.Id == requestId)).Status
+            .Should().Be(BookingRequestStatus.Cancelled, "whichever ran first, the cancel is never undone by the edit");
+        (await client.PutAsJsonAsync($"/api/booking-requests/{requestId}", Body(dayOffset: 8))).StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task Two_Simultaneous_Submits_Of_One_Request_Start_Exactly_One_Workflow()
     {
         var (client, _) = await NewStudentAsync();

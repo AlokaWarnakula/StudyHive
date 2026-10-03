@@ -183,8 +183,14 @@ public sealed class BookingRequestsController(
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(Guid id, UpdateBookingRequestRequest request, CancellationToken ct)
     {
-        var bookingRequest = await db.BookingRequests.Include(r => r.Items).SingleOrDefaultAsync(r => r.Id == id, ct);
-        if (bookingRequest is null) return NotFound();
+        var exists = await db.BookingRequests.AsNoTracking().AnyAsync(r => r.Id == id, ct);
+        if (!exists) return NotFound();
+
+        // The request row lock every status writer takes, then the read: a cancel or submit that
+        // commits meanwhile is seen, never overwritten back to Draft.
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM booking_requests WHERE id = {id} FOR UPDATE", ct);
+        var bookingRequest = await db.BookingRequests.Include(r => r.Items).SingleAsync(r => r.Id == id, ct);
 
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
@@ -231,6 +237,7 @@ public sealed class BookingRequestsController(
         }
 
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
         return Ok(BookingRequestResponse.From(bookingRequest));
     }
 
