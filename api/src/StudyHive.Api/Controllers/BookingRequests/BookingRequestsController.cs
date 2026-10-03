@@ -188,7 +188,9 @@ public sealed class BookingRequestsController(
 
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
-        if (bookingRequest.Status != BookingRequestStatus.Draft)
+        // AUDIT C-02: a request the librarian sent back ("ask for a change") is edited like a
+        // draft and becomes a Draft again until it is resent.
+        if (bookingRequest.Status is not (BookingRequestStatus.Draft or BookingRequestStatus.RevisionRequested))
         {
             return Problem(
                 type: "https://studyhive.dev/errors/conflict",
@@ -210,13 +212,16 @@ public sealed class BookingRequestsController(
         bookingRequest.SessionDurationMinutes = request.SessionDurationMinutes;
         bookingRequest.Budget = request.Budget;
         bookingRequest.Notes = request.Notes?.Trim();
+        bookingRequest.Status = BookingRequestStatus.Draft;
         bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
 
         db.BookingRequestItems.RemoveRange(bookingRequest.Items);
         bookingRequest.Items.Clear();
         foreach (var item in request.Items)
         {
-            bookingRequest.Items.Add(new BookingRequestItem
+            // Added through the DbSet: a new item added only to the tracked collection with a preset
+            // Guid key is treated as an existing row and UPDATEd (0 rows → 500).
+            db.BookingRequestItems.Add(new BookingRequestItem
             {
                 Id = Guid.NewGuid(),
                 BookingRequestId = bookingRequest.Id,
@@ -378,7 +383,8 @@ public sealed class BookingRequestsController(
 
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
-        if (bookingRequest.Status != BookingRequestStatus.Draft)
+        // AUDIT C-02: a RevisionRequested request can also be resent as it is.
+        if (bookingRequest.Status is not (BookingRequestStatus.Draft or BookingRequestStatus.RevisionRequested))
         {
             return Problem(
                 type: "https://studyhive.dev/errors/conflict",
@@ -400,7 +406,7 @@ public sealed class BookingRequestsController(
 
         // Fail fast, synchronously — the workflow itself never re-litigates eligibility from
         // scratch, it only carries this same verdict to the Planner (see WorkflowOrchestrationService).
-        var eligibility = await eligibilityService.EvaluateAsync(bookingRequest.StudentId, ct);
+        var eligibility = await eligibilityService.EvaluateAsync(bookingRequest.StudentId, bookingRequest.Id, ct);
         if (!eligibility.IsEligible)
         {
             return Problem(
@@ -408,6 +414,17 @@ public sealed class BookingRequestsController(
                 title: "Student is not eligible to submit a booking request",
                 statusCode: StatusCodes.Status422UnprocessableEntity,
                 detail: string.Join(" ", eligibility.Reasons));
+        }
+
+        // A resent request's earlier quotation (Rejected by the "ask for a change" decision) is
+        // superseded; the new workflow writes the next version.
+        var earlier = await db.Quotations
+            .Where(q => q.BookingRequestId == id && (q.Status == QuotationStatus.Proposed || q.Status == QuotationStatus.Rejected))
+            .ToListAsync(ct);
+        foreach (var quotation in earlier)
+        {
+            quotation.Status = QuotationStatus.Superseded;
+            quotation.UpdatedAt = DateTimeOffset.UtcNow;
         }
 
         var workflowId = await workflowOrchestration.StartAsync(id, ct);

@@ -125,9 +125,22 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
             return StockOperationResult.Failure(StockOperationOutcome.BookingRequestItemNotFound, "Booking request item not found.");
         }
 
-        var alreadyExists = await db.StockReservations.AsNoTracking()
-            .AnyAsync(r => r.BookingRequestItemId == bookingRequestItemId, ct);
-        if (alreadyExists)
+        var existing = await db.StockReservations
+            .SingleOrDefaultAsync(r => r.BookingRequestItemId == bookingRequestItemId, ct);
+        if (existing is { Status: StockReservationStatus.Released })
+        {
+            // A request resent after "ask for a change" (AUDIT C-02) keeps its item rows; their
+            // earlier Pending notes were released by that decision. Released holds no stock, so the
+            // row simply becomes a Pending note again (BookingRequestItemId is unique).
+            existing.Status = StockReservationStatus.Pending;
+            existing.ReleasedAt = null;
+            existing.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            var reopened = await db.StockReservations.AsNoTracking().Include(r => r.Consumable)
+                .SingleAsync(r => r.Id == existing.Id, ct);
+            return StockOperationResult.Success(reopened);
+        }
+        if (existing is not null)
         {
             return StockOperationResult.Failure(StockOperationOutcome.AlreadyReserved, "This booking request item already has a stock reservation.");
         }

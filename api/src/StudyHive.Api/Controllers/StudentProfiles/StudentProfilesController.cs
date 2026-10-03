@@ -153,7 +153,7 @@ public sealed class StudentProfilesController(
 
         if (!IsOwnerOrStaffReader(profile.UserId)) return Forbid();
 
-        var result = await eligibilityService.EvaluateAsync(id, ct);
+        var result = await eligibilityService.EvaluateAsync(id, excludeBookingRequestId: null, ct);
         return Ok(new EligibilityResponse { Eligible = result.IsEligible, Reasons = result.Reasons });
     }
 

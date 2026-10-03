@@ -13,7 +13,10 @@ public sealed record EligibilityResult(bool IsEligible, IReadOnlyList<string> Re
 /// </summary>
 public interface IBookingEligibilityService
 {
-    Task<EligibilityResult> EvaluateAsync(Guid studentProfileId, CancellationToken ct);
+    /// <param name="excludeBookingRequestId">The request being submitted or run, which must not count
+    /// against its own weekly slot (AUDIT C-03); null when no request is being evaluated (the
+    /// eligibility endpoint).</param>
+    Task<EligibilityResult> EvaluateAsync(Guid studentProfileId, Guid? excludeBookingRequestId, CancellationToken ct);
 }
 
 public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingEligibilityService
@@ -37,7 +40,7 @@ public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingE
         return mondayMidnight.ToUniversalTime();
     }
 
-    public async Task<EligibilityResult> EvaluateAsync(Guid studentProfileId, CancellationToken ct)
+    public async Task<EligibilityResult> EvaluateAsync(Guid studentProfileId, Guid? excludeBookingRequestId, CancellationToken ct)
     {
         var profile = await db.StudentProfiles.AsNoTracking().SingleOrDefaultAsync(p => p.Id == studentProfileId, ct);
         if (profile is null)
@@ -74,10 +77,19 @@ public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingE
         // of which would count against each other or a fresh submission (Codex security review, P1).
         // A WorkflowExecution only ever exists for a request that was really submitted, so no status
         // filter is needed: once the week rolls over it naturally drops out of the window.
+        //
+        // AUDIT C-03: what counts is distinct booking requests, not executions (a request resent
+        // after "ask for a change" runs a second workflow but is still one booking), and the request
+        // being evaluated is excluded, so Submit (before its workflow row exists) and the workflow
+        // (after) give the same verdict.
         var weekStart = CurrentWeekStart();
         var submissionsThisWeek = await db.WorkflowExecutions
             .AsNoTracking()
-            .CountAsync(w => w.BookingRequest.StudentId == studentProfileId && w.StartedAt >= weekStart, ct);
+            .Where(w => w.BookingRequest.StudentId == studentProfileId && w.StartedAt >= weekStart)
+            .Where(w => excludeBookingRequestId == null || w.BookingRequestId != excludeBookingRequestId)
+            .Select(w => w.BookingRequestId)
+            .Distinct()
+            .CountAsync(ct);
 
         if (submissionsThisWeek >= profile.MaxBookingsPerWeek)
         {

@@ -96,7 +96,7 @@ public sealed class WorkflowOrchestrationService(
 
         try
         {
-            var eligibility = await eligibilityService.EvaluateAsync(bookingRequest.StudentId, ct);
+            var eligibility = await eligibilityService.EvaluateAsync(bookingRequest.StudentId, bookingRequest.Id, ct);
 
             var plannerRequest = new PlannerRequest
             {
