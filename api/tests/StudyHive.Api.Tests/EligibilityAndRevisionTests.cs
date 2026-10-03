@@ -175,6 +175,20 @@ public sealed class EligibilityAndRevisionTests : IAsyncLifetime
         (await client.PostAsync($"/api/booking-requests/{requestId}/submit", null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
+    [Fact]
+    public async Task Two_Simultaneous_Submits_Of_One_Request_Start_Exactly_One_Workflow()
+    {
+        var (client, _) = await NewStudentAsync();
+        var requestId = await CreateAsync(client, dayOffset: 7);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 2)
+            .Select(_ => client.PostAsync($"/api/booking-requests/{requestId}/submit", null)));
+
+        responses.Select(r => r.StatusCode).Should().BeEquivalentTo([HttpStatusCode.Accepted, HttpStatusCode.Conflict]);
+        using var scope = factory.Services.CreateScope();
+        (await Db(scope).WorkflowExecutions.CountAsync(w => w.BookingRequestId == requestId)).Should().Be(1);
+    }
+
     private static StudyHiveDbContext Db(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
 
     private HttpClient Client(string token)

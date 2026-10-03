@@ -383,16 +383,6 @@ public sealed class BookingRequestsController(
 
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
-        // AUDIT C-02: a RevisionRequested request can also be resent as it is.
-        if (bookingRequest.Status is not (BookingRequestStatus.Draft or BookingRequestStatus.RevisionRequested))
-        {
-            return Problem(
-                type: "https://studyhive.dev/errors/conflict",
-                title: "Only draft requests can be submitted",
-                statusCode: StatusCodes.Status409Conflict,
-                detail: $"This request is '{bookingRequest.Status}' and cannot be submitted again.");
-        }
-
         // Serializes concurrent submissions from the same student so the weekly-quota check below
         // can't race two Submit calls past each other (Codex security review, P1): FOR UPDATE holds
         // a row lock on the student's own profile for the rest of this transaction, so a second
@@ -403,6 +393,22 @@ public sealed class BookingRequestsController(
             .FromSqlInterpolated($"SELECT * FROM student_profiles WHERE id = {bookingRequest.StudentId} FOR UPDATE")
             .AsNoTracking()
             .SingleAsync(ct);
+
+        // Then the request row itself (the lock Cancel, approvals and the workflow take), re-read
+        // after it: a cancel or a second submit that committed meanwhile is seen here, never
+        // overwritten.
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM booking_requests WHERE id = {id} FOR UPDATE", ct);
+        await db.Entry(bookingRequest).ReloadAsync(ct);
+
+        // AUDIT C-02: a RevisionRequested request can also be resent as it is.
+        if (bookingRequest.Status is not (BookingRequestStatus.Draft or BookingRequestStatus.RevisionRequested))
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Only draft requests can be submitted",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: $"This request is '{bookingRequest.Status}' and cannot be submitted again.");
+        }
 
         // Fail fast, synchronously — the workflow itself never re-litigates eligibility from
         // scratch, it only carries this same verdict to the Planner (see WorkflowOrchestrationService).
