@@ -4,10 +4,9 @@ State management: **Provider** (ADR-2). Talks only to `api/` — never directly 
 
 ## Status: verified
 
-`flutter pub get`, `flutter analyze` (0 issues) and `flutter test` (40/40 passing) all run clean.
+`flutter pub get`, `flutter analyze` (0 issues) and `flutter test` (58/58 passing) all run clean.
 `flutter build web` also succeeds, so the app runs in Chrome without Android Studio or the Android
-SDK. `web/` and `windows/` platform runners are committed; `android/`/`ios/` are not generated yet —
-add them with `flutter create . --platforms=android,ios` once Android Studio/Xcode are available.
+SDK. `android/`, `web/` and `windows/` platform runners are committed; `ios/` is not generated yet.
 
 Login is wired to `POST /api/auth/login`; the create-account screen uses `POST /api/auth/register`
 and signs the new student in. Only Student accounts can sign in here; staff accounts are rejected with a message pointing
@@ -82,6 +81,21 @@ physical device, or a different port:
 ```bash
 flutter run --dart-define=API_BASE_URL=http://<your-lan-ip>:5299
 ```
+
+## Android APK
+
+Needs Android Studio's SDK; the first build also installs NDK 28.2.13676358 (about 700 MB).
+Against the Docker stack (`docker compose up -d`, API on port 8080), from the emulator:
+
+```bash
+flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080
+```
+
+The APK lands in `build/app/outputs/flutter-apk/app-debug.apk`. The local API is plain HTTP, so
+debug builds allow cleartext only to the hosts in
+`android/app/src/debug/res/xml/network_security_config.xml` (10.0.2.2, localhost and the laptop's
+Wi-Fi IP); add your LAN IP there before testing on a real phone. Release builds allow no cleartext.
+The camera permission for QR check-in comes from `mobile_scanner`'s own manifest.
 
 ## Structure
 
