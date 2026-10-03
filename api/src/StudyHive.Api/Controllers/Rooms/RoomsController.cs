@@ -99,6 +99,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         [FromQuery] Guid? equipmentTypeId,
         CancellationToken ct)
     {
+        var showQrCode = ShowQrCode;
         IQueryable<StudyRoom> rooms = db.StudyRooms
             .AsNoTracking();
 
@@ -197,7 +198,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
                 r.Floor,
                 r.Capacity,
                 r.HourlyRate,
-                r.QrCode,
+                showQrCode ? r.QrCode : null,
                 r.IsActive,
                 r.CreatedAt,
                 r.UpdatedAt))
@@ -226,6 +227,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         [FromQuery] Guid? equipmentTypeId,
         CancellationToken ct)
     {
+        var showQrCode = ShowQrCode;
         if (from is null)
         {
             ModelState.AddModelError(nameof(from), "Start time is required.");
@@ -326,7 +328,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
                 r.Floor,
                 r.Capacity,
                 r.HourlyRate,
-                r.QrCode,
+                showQrCode ? r.QrCode : null,
                 r.IsActive,
                 r.CreatedAt,
                 r.UpdatedAt))
@@ -344,6 +346,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
+        var showQrCode = ShowQrCode;
         var room = await db.StudyRooms
             .AsNoTracking()
             .Where(r => r.Id == id)
@@ -354,7 +357,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
                 r.Floor,
                 r.Capacity,
                 r.HourlyRate,
-                r.QrCode,
+                showQrCode ? r.QrCode : null,
                 r.IsActive,
                 r.CreatedAt,
                 r.UpdatedAt,
@@ -665,6 +668,9 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         return ModelState.IsValid;
     }
 
+    /// <summary>AUDIT C-10: room QR codes go to staff only; a student reads the code at the door.</summary>
+    private bool ShowQrCode => !User.IsInRole(Roles.Student);
+
     private static RoomResponse ToResponse(StudyRoom room) => new(
         room.Id,
         room.Name,
@@ -710,6 +716,8 @@ public sealed record AssignRoomEquipmentRequest(
 /// <summary>
 /// Room data returned by the API.
 /// </summary>
+/// <remarks>QrCode is null for students (AUDIT C-10): the code is what proves a student is at the
+/// door, so it is only ever read from the sticker.</remarks>
 public sealed record RoomResponse(
     Guid Id,
     string Name,
@@ -717,7 +725,7 @@ public sealed record RoomResponse(
     int Floor,
     int Capacity,
     decimal HourlyRate,
-    string QrCode,
+    string? QrCode,
     bool IsActive,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
@@ -736,7 +744,7 @@ public sealed record RoomDetailResponse(
     int Floor,
     int Capacity,
     decimal HourlyRate,
-    string QrCode,
+    string? QrCode,
     bool IsActive,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,

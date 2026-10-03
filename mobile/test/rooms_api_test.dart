@@ -85,6 +85,31 @@ void main() {
     },
   );
 
+  test('room detail for a student has no QR code (AUDIT C-10)', () async {
+    final api = RoomsApi(
+      ApiClient(
+        client: MockClient((request) async {
+          return jsonResponse({
+            'id': 'room-1',
+            'name': 'B-204',
+            'building': 'Main library',
+            'floor': 2,
+            'capacity': 6,
+            'hourlyRate': 150,
+            'qrCode': null,
+            'isActive': true,
+            'equipment': [],
+          });
+        }),
+      ),
+    );
+
+    final room = await api.getById('room-1');
+
+    expect(room.name, 'B-204');
+    expect(room.qrCode, isNull);
+  });
+
   test('availability sends from, to and capacity', () async {
     late Uri requested;
     final api = RoomsApi(
