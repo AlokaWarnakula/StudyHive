@@ -67,20 +67,29 @@ public sealed class ApprovalsController(
         }
 
         var userId = User.GetUserId();
+        var bookingRequestId = await db.Quotations.AsNoTracking()
+            .Where(q => q.Id == request.QuotationId)
+            .Select(q => (Guid?)q.BookingRequestId)
+            .SingleOrDefaultAsync(ct);
+        if (bookingRequestId is null)
+        {
+            return NotFound();
+        }
+
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
-        // Row lock: a concurrent decision on the same quotation waits here, then sees it is no
-        // longer Proposed and gets the 409 below.
+        // Row locks, request first then quotation — the same order BookingRequestsController.Cancel
+        // takes them. A student's cancel and a librarian's decision on the same request serialize
+        // here, and a concurrent decision on the same quotation waits, then sees it is no longer
+        // Proposed and gets the 409 below.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM booking_requests WHERE id = {bookingRequestId.Value} FOR UPDATE", ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT 1 FROM quotations WHERE id = {request.QuotationId} FOR UPDATE", ct);
 
         var quotation = await db.Quotations
             .Include(q => q.LineItems)
-            .SingleOrDefaultAsync(q => q.Id == request.QuotationId, ct);
-        if (quotation is null)
-        {
-            return NotFound();
-        }
+            .SingleAsync(q => q.Id == request.QuotationId, ct);
 
         if (quotation.Status != QuotationStatus.Proposed)
         {
@@ -91,6 +100,14 @@ public sealed class ApprovalsController(
         var bookingRequest = await db.BookingRequests
             .Include(r => r.Items)
             .SingleAsync(r => r.Id == quotation.BookingRequestId, ct);
+
+        // AUDIT C-01: a request the student cancelled (or any request no longer waiting for a
+        // librarian) can never be brought back by deciding its quotation.
+        if (bookingRequest.Status != BookingRequestStatus.PendingApproval)
+        {
+            return Conflict("request-not-pending", "Request is not waiting for approval",
+                $"This request is '{bookingRequest.Status}'; only a request awaiting approval can be decided.");
+        }
         var execution = await db.WorkflowExecutions
             .Where(w => w.BookingRequestId == bookingRequest.Id)
             .OrderByDescending(w => w.StartedAt)
@@ -125,7 +142,8 @@ public sealed class ApprovalsController(
                 execution.Status = WorkflowStatus.Rejected;
                 execution.CompletedAt = now;
             }
-            auditDetails["releasedReservationIds"] = await ReleasePendingReservationsAsync(bookingRequest, now, ct);
+            auditDetails["releasedReservationIds"] = await stockService.ReleasePendingAsync(
+                bookingRequest.Items.Select(i => i.Id).ToList(), ct);
         }
 
         quotation.UpdatedAt = now;
@@ -198,7 +216,10 @@ public sealed class ApprovalsController(
         {
             if (string.Equals(status, ApprovalQueueItemResponse.Pending, StringComparison.OrdinalIgnoreCase))
             {
-                quotations = quotations.Where(q => q.Status == QuotationStatus.Proposed);
+                // A cancel supersedes the quotation; the request check also hides rows cancelled
+                // before that fix (AUDIT C-01, CW-07).
+                quotations = quotations.Where(q => q.Status == QuotationStatus.Proposed
+                    && q.BookingRequest.Status == BookingRequestStatus.PendingApproval);
             }
             else if (Enum.TryParse<ApprovalDecisionType>(status, ignoreCase: true, out var parsed))
             {
@@ -376,22 +397,6 @@ public sealed class ApprovalsController(
         {
             return null;
         }
-    }
-
-    /// <summary>Pending reservations never held stock, so releasing them is a status change only.</summary>
-    private async Task<List<Guid>> ReleasePendingReservationsAsync(BookingRequest bookingRequest, DateTimeOffset now, CancellationToken ct)
-    {
-        var itemIds = bookingRequest.Items.Select(i => i.Id).ToList();
-        var pending = await db.StockReservations
-            .Where(r => itemIds.Contains(r.BookingRequestItemId) && r.Status == StockReservationStatus.Pending)
-            .ToListAsync(ct);
-        foreach (var reservation in pending)
-        {
-            reservation.Status = StockReservationStatus.Released;
-            reservation.ReleasedAt = now;
-            reservation.UpdatedAt = now;
-        }
-        return pending.Select(r => r.Id).ToList();
     }
 
     private static IQueryable<ApprovalQueueItemResponse> ProjectQueueItems(IQueryable<Quotation> quotations) =>

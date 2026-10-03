@@ -232,6 +232,8 @@ builder.Services.AddScoped<IWorkflowOrchestrationService, WorkflowOrchestrationS
 builder.Services.AddScoped<IConsumableStockService, ConsumableStockService>(); // S3: consumables & stock
 builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
+builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
+builder.Services.AddHostedService<BookingLifecycleBackgroundService>();
 
 // S3: the Brevo email sender. Off without Brevo:ApiKey + Brevo:SenderEmail, and nothing else depends on it.
 var emailSenderEnabled = builder.Services.AddEmailSender(builder.Configuration);

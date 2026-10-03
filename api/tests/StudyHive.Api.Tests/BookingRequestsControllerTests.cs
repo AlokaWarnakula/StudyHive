@@ -664,6 +664,136 @@ public class BookingRequestsControllerTests(WebApplicationFactory<Program> facto
     }
 
     [Fact]
+    public async Task A_Request_Cancelled_While_The_Agents_Run_Never_Reaches_PendingApproval()
+    {
+        // AUDIT C-01: the student cancels while the Validation agent is working. The workflow's
+        // final step re-reads the request under its row lock and must not resurrect it.
+        var roomId = Guid.NewGuid();
+        WebApplicationFactory<Program>? localFactory = null;
+        var studentProfileId = Guid.Empty;
+        var validation = new FakeValidationClient
+        {
+            OnValidate = request =>
+            {
+                using var scope = localFactory!.Services.CreateScope();
+                scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().BookingRequests
+                    .Where(r => r.StudentId == studentProfileId)
+                    .ExecuteUpdate(s => s.SetProperty(r => r.Status, BookingRequestStatus.Cancelled));
+                return FakeValidationClient.Price(request);
+            },
+        };
+        localFactory = CreateFactoryWithFakePlanner(new FakePlannerClient(), SchedulingInRoom(roomId), validation);
+        await using var _ = localFactory;
+        var client = localFactory.CreateClient();
+        var userIds = new List<Guid>();
+        await CreateSchedulingRoomAsync(localFactory, roomId, hourlyRate: 10m);
+        var consumableId = await CreateConsumableAsync(localFactory, unitPrice: 1m, stock: 20);
+
+        var (user, _, token) = await TestSupport.CreateAndLoginStudentAsync(client);
+        userIds.Add(user.Id);
+        studentProfileId = (await TestSupport.CreateStudentProfileAsync(client, token)).Id;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var requestId = await CreateAndSubmitAsync(client, budget: 500m, consumableId, quantity: 2);
+
+        var status = await WaitForTerminalStatusAsync(client, requestId, TimeSpan.FromSeconds(10));
+
+        status.Status.Should().Be("Rejected");
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            (await db.BookingRequests.AsNoTracking().SingleAsync(r => r.Id == requestId)).Status.Should().Be(BookingRequestStatus.Cancelled);
+            (await db.WorkflowExecutions.AsNoTracking().SingleAsync(w => w.BookingRequestId == requestId)).ErrorCode
+                .Should().Be("CANCELLED_BY_STUDENT");
+            (await db.Quotations.AnyAsync(q => q.BookingRequestId == requestId)).Should().BeFalse();
+            (await db.StockReservations.AsNoTracking().SingleAsync(r => r.ConsumableId == consumableId)).Status
+                .Should().Be(StockReservationStatus.Released);
+        }
+
+        await TestSupport.CleanupAsync(localFactory, userIds.ToArray());
+        await DeleteConsumableAsync(localFactory, consumableId);
+        await DeleteSchedulingRoomAsync(localFactory, roomId);
+    }
+
+    [Fact]
+    public async Task A_Request_Cancelled_Before_Its_Workflow_Is_Dequeued_Is_Never_Processed()
+    {
+        var planner = new FakePlannerClient();
+        await using var localFactory = CreateFactoryWithFakePlanner(planner);
+        var client = localFactory.CreateClient();
+        var (user, _, token) = await TestSupport.CreateAndLoginStudentAsync(client);
+        await TestSupport.CreateStudentProfileAsync(client, token);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var created = await client.PostAsJsonAsync("/api/booking-requests", ValidRequestBody());
+        var requestId = (await created.Content.ReadFromJsonAsync<BookingRequestResponseShape>(TestSupport.JsonOptions))!.Id;
+
+        // Submit's first half (the workflow row), then the student cancels, then the queue runs it.
+        Guid workflowId;
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            workflowId = await scope.ServiceProvider.GetRequiredService<IWorkflowOrchestrationService>().StartAsync(requestId, default);
+        }
+        (await client.DeleteAsync($"/api/booking-requests/{requestId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IWorkflowOrchestrationService>().RunAsync(workflowId, default);
+        }
+
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            (await db.BookingRequests.AsNoTracking().SingleAsync(r => r.Id == requestId)).Status.Should().Be(BookingRequestStatus.Cancelled);
+            var workflow = await db.WorkflowExecutions.AsNoTracking().Include(w => w.StepLogs).SingleAsync(w => w.Id == workflowId);
+            workflow.Status.Should().Be(WorkflowStatus.Rejected);
+            workflow.ErrorCode.Should().Be("CANCELLED_BY_STUDENT");
+            workflow.StepLogs.Should().BeEmpty("no agent runs for a cancelled request");
+        }
+
+        await TestSupport.CleanupAsync(localFactory, user.Id);
+    }
+
+    [Fact]
+    public async Task A_Request_Cancelled_During_A_Failing_Validation_Stays_Cancelled_And_Gets_No_Email()
+    {
+        var roomId = Guid.NewGuid();
+        WebApplicationFactory<Program>? localFactory = null;
+        var studentProfileId = Guid.Empty;
+        var validation = new FakeValidationClient
+        {
+            OnValidate = request =>
+            {
+                using var scope = localFactory!.Services.CreateScope();
+                scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().BookingRequests
+                    .Where(r => r.StudentId == studentProfileId)
+                    .ExecuteUpdate(s => s.SetProperty(r => r.Status, BookingRequestStatus.Cancelled));
+                return FakeValidationClient.Price(request); // the budget below is too small: invalid
+            },
+        };
+        localFactory = CreateFactoryWithFakePlanner(new FakePlannerClient(), SchedulingInRoom(roomId), validation);
+        await using var _ = localFactory;
+        var client = localFactory.CreateClient();
+        await CreateSchedulingRoomAsync(localFactory, roomId, hourlyRate: 100m);
+        var (user, _, token) = await TestSupport.CreateAndLoginStudentAsync(client);
+        studentProfileId = (await TestSupport.CreateStudentProfileAsync(client, token)).Id;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var requestId = await CreateAndSubmitAsync(client, budget: 1m);
+
+        var status = await WaitForTerminalStatusAsync(client, requestId, TimeSpan.FromSeconds(10));
+
+        status.Status.Should().Be("Rejected");
+        using (var scope = localFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            (await db.BookingRequests.AsNoTracking().SingleAsync(r => r.Id == requestId)).Status.Should().Be(BookingRequestStatus.Cancelled);
+            (await db.WorkflowExecutions.AsNoTracking().SingleAsync(w => w.BookingRequestId == requestId)).ErrorCode
+                .Should().Be("CANCELLED_BY_STUDENT");
+            (await db.EmailNotifications.AnyAsync(e => e.BookingRequestId == requestId)).Should().BeFalse();
+        }
+
+        await TestSupport.CleanupAsync(localFactory, user.Id);
+        await DeleteSchedulingRoomAsync(localFactory, roomId);
+    }
+
+    [Fact]
     public async Task Submit_Fails_With_VALIDATION_FAILED_And_Writes_No_Quotation_When_Over_Budget()
     {
         var roomId = Guid.NewGuid();

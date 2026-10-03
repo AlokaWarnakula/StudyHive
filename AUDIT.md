@@ -578,3 +578,15 @@ scroll at 375 px.
   was exercised indirectly through reject and ask-for-change.
 - **Agent code hygiene:** not re-checked; Codex's TODO/debug-log scan was spot-checked only for
   web/api/mobile (16 TODO/SCAFFOLD markers, all in Users, quotations scaffolds and CW-10).
+
+## Fix status
+
+Fixes for the findings above (PLAN.md section 3). One row per audit ID; "cut" rows say why.
+
+| Audit ID | Fixed in PR | Test |
+|---|---|---|
+| C-01 | [#27](https://github.com/ItsAloka/StudyHive/pull/27) | `BookingLifecycleTests.Approving_A_Request_The_Student_Cancelled_Returns_409_And_Books_Nothing`, `…Request_Is_No_Longer_Pending_Returns_409_request_not_pending`, `BookingRequestsControllerTests.A_Request_Cancelled_While_The_Agents_Run_Never_Reaches_PendingApproval`, `…Cancelled_Before_Its_Workflow_Is_Dequeued_Is_Never_Processed`, `…Cancelled_During_A_Failing_Validation_Stays_Cancelled_And_Gets_No_Email`; live: cancel 204 → approve 409 |
+| CW-07 (stuck Pending reservations) | [#27](https://github.com/ItsAloka/StudyHive/pull/27) | `BookingLifecycleTests.Cancelling_A_PendingApproval_Request_Supersedes_Its_Quotation_Releases_Stock_And_Stops_The_Workflow` |
+| C-07 (API) | [#27](https://github.com/ItsAloka/StudyHive/pull/27) | `BookingLifecycleTests.Cancelling_An_Approved_Booking_Before_It_Starts_…`, `…After_It_Started_Returns_409_…`, `EmailSenderTests.A_Cancelled_Email_Lists_The_Released_Room_Times` |
+| C-06 (API) | [#27](https://github.com/ItsAloka/StudyHive/pull/27) | `BookingLifecycleTests.Ended_Bookings_Close_As_Completed_Or_NoShow_And_The_Request_Completes`, `…The_Request_Response_Carries_Its_Room_Bookings` |
+| C-15 (no-shows) | [#27](https://github.com/ItsAloka/StudyHive/pull/27) | `BookingLifecycleTests.Ended_Bookings_Close_As_Completed_Or_NoShow_And_The_Request_Completes` |

@@ -64,6 +64,13 @@ public interface IConsumableStockService
 
     Task<StockOperationResult> ReleaseAsync(Guid reservationId, Guid performedByUserId, CancellationToken ct);
 
+    /// <summary>Marks every Pending reservation of these booking-request items Released. Pending rows
+    /// never held stock, so this is a status change only — no reserved_quantity or ledger movement.
+    /// The changes are left on the caller's change tracker and saved by the caller's SaveChangesAsync,
+    /// together with whatever status change made them redundant (reject, cancel, failed validation).
+    /// Returns the released reservation ids.</summary>
+    Task<List<Guid>> ReleasePendingAsync(IReadOnlyCollection<Guid> bookingRequestItemIds, CancellationToken ct);
+
     Task<StockOperationResult> MarkUsedAsync(Guid reservationId, Guid performedByUserId, CancellationToken ct);
 }
 
@@ -275,6 +282,24 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
         if (transaction is not null) await transaction.CommitAsync(ct);
         reservation.Consumable = consumable; // populate for the response mapper only, set post-save so it can't affect the write
         return StockOperationResult.Success(reservation, consumable);
+    }
+
+    public async Task<List<Guid>> ReleasePendingAsync(IReadOnlyCollection<Guid> bookingRequestItemIds, CancellationToken ct)
+    {
+        if (bookingRequestItemIds.Count == 0) return [];
+
+        var pending = await db.StockReservations
+            .Where(r => bookingRequestItemIds.Contains(r.BookingRequestItemId) && r.Status == StockReservationStatus.Pending)
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var reservation in pending)
+        {
+            reservation.Status = StockReservationStatus.Released;
+            reservation.ReleasedAt = now;
+            reservation.UpdatedAt = now;
+        }
+        return pending.Select(r => r.Id).ToList();
     }
 
     public async Task<StockOperationResult> MarkUsedAsync(Guid reservationId, Guid performedByUserId, CancellationToken ct)

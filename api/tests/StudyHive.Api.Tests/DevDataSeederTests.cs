@@ -47,7 +47,13 @@ public class DevDataSeederTests(WebApplicationFactory<Program> factory)
         var requests = await db.BookingRequests
             .Where(r => r.StudentId == student.Id && requestIds.Contains(r.Id))
             .ToListAsync();
-        requests.Select(r => r.Status).Should().BeEquivalentTo(expectedStatuses);
+        // Request 4 is seeded Approved with a room booking; once that slot ends, the booking
+        // lifecycle sweep (BookingLifecycleService) correctly closes it and completes the request.
+        var approvedSample = Guid.Parse("10000000-0000-0000-0000-000000000004");
+        requests.Single(r => r.Id == approvedSample).Status
+            .Should().BeOneOf(BookingRequestStatus.Approved, BookingRequestStatus.Completed);
+        requests.Select(r => r.Id == approvedSample ? BookingRequestStatus.Approved : r.Status)
+            .Should().BeEquivalentTo(expectedStatuses);
 
         var consumableIds = new[]
         {

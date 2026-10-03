@@ -79,8 +79,8 @@ work in parallel on their own areas. IDs refer to [`AUDIT.md`](AUDIT.md).
 
 ### 3.0 Before starting (both, ~15 min)
 
-- [ ] Merge PR #25 (`mobile/android`), then the docs PR with `AUDIT.md` + this `PLAN.md`.
-- [ ] Pull `main`; full suite green on a clean checkout.
+- [x] Merge PR #25 (`mobile/android`), then the docs PR with `AUDIT.md` + this `PLAN.md` (PR #26).
+- [x] Pull `main`; full suite green on a clean checkout (API 188, agent 87, web 72, mobile 58).
 - [ ] Human decisions (defaults below apply if nobody objects):
   - **D1 Web session across reload (W-01):** keep the access token in memory; move the **refresh
     token into an httpOnly, Secure, SameSite cookie** set by the API (`/api/auth/login` and
@@ -97,7 +97,7 @@ work in parallel on their own areas. IDs refer to [`AUDIT.md`](AUDIT.md).
 
 ### Phase A — blockers (start first, merge before Phase B)
 
-#### A1. Booking lifecycle integrity — Claude, branch `fix/api-booking-lifecycle`
+#### A1. Booking lifecycle integrity — Claude, branch `fix/api-booking-lifecycle` — ✅ [PR #27](https://github.com/ItsAloka/StudyHive/pull/27)
 Covers **C-01, CW-07 (stuck Pending reservations), C-07, C-06 (API part), C-15 (no-shows)**.
 
 - **Approve must check the request (C-01).** In `ApprovalsController.Create` reject the decision

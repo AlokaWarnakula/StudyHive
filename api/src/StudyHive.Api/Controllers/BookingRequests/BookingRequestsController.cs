@@ -18,7 +18,8 @@ public sealed class BookingRequestsController(
     StudyHiveDbContext db,
     IBookingEligibilityService eligibilityService,
     IWorkflowOrchestrationService workflowOrchestration,
-    IWorkflowQueue workflowQueue) : ControllerBase
+    IWorkflowQueue workflowQueue,
+    IConsumableStockService stockService) : ControllerBase
 {
     /// <summary>Requests that still count against the weekly quota / can still be acted on by the student.</summary>
     private static readonly BookingRequestStatus[] CancellableStatuses =
@@ -137,12 +138,14 @@ public sealed class BookingRequestsController(
             .ToListAsync(ct);
 
         // Summaries only for the rows already filtered to what this caller may see.
-        var summaries = await LoadS4SummariesAsync(page.Select(r => r.Id).ToList(), ct);
+        var pageIds = page.Select(r => r.Id).ToList();
+        var summaries = await LoadS4SummariesAsync(pageIds, ct);
+        var roomBookings = await LoadRoomBookingsAsync(pageIds, ct);
         var items = page
             .Select(r =>
             {
                 var (quotation, decision) = summaries.GetValueOrDefault(r.Id);
-                return BookingRequestResponse.From(r, null, quotation, decision);
+                return BookingRequestResponse.From(r, null, quotation, decision, roomBookings.GetValueOrDefault(r.Id));
             })
             .ToList();
 
@@ -168,7 +171,8 @@ public sealed class BookingRequestsController(
             .FirstOrDefaultAsync(ct);
 
         var (latestQuotation, latestDecision) = (await LoadS4SummariesAsync([id], ct)).GetValueOrDefault(id);
-        return Ok(BookingRequestResponse.From(bookingRequest, latestWorkflowId, latestQuotation, latestDecision));
+        var roomBookings = (await LoadRoomBookingsAsync([id], ct)).GetValueOrDefault(id);
+        return Ok(BookingRequestResponse.From(bookingRequest, latestWorkflowId, latestQuotation, latestDecision, roomBookings));
     }
 
     [HttpPut("{id:guid}")]
@@ -226,7 +230,18 @@ public sealed class BookingRequestsController(
     }
 
     /// <summary>Cancel — preserves the row for audit history (DOCS: requests are never physically
-    /// deleted). A terminal request (Completed/Cancelled/Rejected/Failed) cannot be cancelled again.</summary>
+    /// deleted). A terminal request (Completed/Cancelled/Rejected/Failed) cannot be cancelled again.
+    ///
+    /// One transaction, holding the request row lock that ApprovalsController.Create and the
+    /// workflow's final step also take, so a cancel and an approval can never both win (AUDIT C-01):
+    /// <list type="bullet">
+    /// <item>Not yet approved: the Proposed quotation becomes Superseded (it leaves the approval
+    /// queue), Pending stock reservations are released, and a workflow still running or waiting for
+    /// approval ends Rejected with CANCELLED_BY_STUDENT (C-01, CW-07).</item>
+    /// <item>Approved, before its first room booking starts: the room bookings are Cancelled, each
+    /// Reserved reservation is released with a Release stock transaction, and a BookingCancelled
+    /// email is queued (C-07). Once a booking has started: 409.</item>
+    /// </list></summary>
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "StudentOnly")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -235,12 +250,26 @@ public sealed class BookingRequestsController(
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Cancel(Guid id, CancellationToken ct)
     {
-        var bookingRequest = await db.BookingRequests.SingleOrDefaultAsync(r => r.Id == id, ct);
-        if (bookingRequest is null) return NotFound();
+        var exists = await db.BookingRequests.AsNoTracking().AnyAsync(r => r.Id == id, ct);
+        if (!exists) return NotFound();
 
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM booking_requests WHERE id = {id} FOR UPDATE", ct);
+
+        var bookingRequest = await db.BookingRequests.Include(r => r.Items).SingleAsync(r => r.Id == id, ct);
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
-        if (!CancellableStatuses.Contains(bookingRequest.Status))
+        var now = DateTimeOffset.UtcNow;
+        if (bookingRequest.Status == BookingRequestStatus.Approved)
+        {
+            var conflict = await CancelApprovedAsync(bookingRequest, now, ct);
+            if (conflict is not null) return conflict;
+        }
+        else if (CancellableStatuses.Contains(bookingRequest.Status))
+        {
+            await CancelUndecidedAsync(bookingRequest, now, ct);
+        }
+        else
         {
             return Problem(
                 type: "https://studyhive.dev/errors/conflict",
@@ -250,10 +279,88 @@ public sealed class BookingRequestsController(
         }
 
         bookingRequest.Status = BookingRequestStatus.Cancelled;
-        bookingRequest.UpdatedAt = DateTimeOffset.UtcNow;
+        bookingRequest.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return NoContent();
+    }
+
+    private async Task CancelUndecidedAsync(BookingRequest bookingRequest, DateTimeOffset now, CancellationToken ct)
+    {
+        var proposed = await db.Quotations
+            .Where(q => q.BookingRequestId == bookingRequest.Id && q.Status == QuotationStatus.Proposed)
+            .ToListAsync(ct);
+        foreach (var quotation in proposed)
+        {
+            quotation.Status = QuotationStatus.Superseded;
+            quotation.UpdatedAt = now;
+        }
+
+        await stockService.ReleasePendingAsync(bookingRequest.Items.Select(i => i.Id).ToList(), ct);
+
+        // Only a workflow that is still live is stopped; a finished one (for example the Rejected
+        // workflow of a RevisionRequested request) keeps its own outcome.
+        var execution = await db.WorkflowExecutions
+            .Where(w => w.BookingRequestId == bookingRequest.Id)
+            .OrderByDescending(w => w.StartedAt)
+            .FirstOrDefaultAsync(ct);
+        if (execution is { Status: WorkflowStatus.Started or WorkflowStatus.InProgress or WorkflowStatus.PendingApproval })
+        {
+            execution.Status = WorkflowStatus.Rejected;
+            execution.ErrorCode = BookingCancellation.ErrorCode;
+            execution.ErrorMessage = BookingCancellation.ErrorMessage;
+            execution.CompletedAt = now;
+            execution.UpdatedAt = now;
+        }
+    }
+
+    /// <summary>Returns the 409 to send when the booking has already started, otherwise null after
+    /// releasing the rooms and stock.</summary>
+    private async Task<IActionResult?> CancelApprovedAsync(BookingRequest bookingRequest, DateTimeOffset now, CancellationToken ct)
+    {
+        var bookings = await db.RoomBookings
+            .Where(b => b.BookingRequestId == bookingRequest.Id && b.Status != RoomBookingStatus.Cancelled)
+            .ToListAsync(ct);
+        if (bookings.Any(b => b.StartsAt <= now || b.CheckedInAt is not null || b.Status != RoomBookingStatus.Confirmed))
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/booking-started",
+                title: "Booking cannot be cancelled",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "This booking has already started.");
+        }
+
+        foreach (var booking in bookings)
+        {
+            booking.Status = RoomBookingStatus.Cancelled;
+            booking.UpdatedAt = now;
+        }
+
+        var itemIds = bookingRequest.Items.Select(i => i.Id).ToList();
+        var reservedIds = await db.StockReservations.AsNoTracking()
+            .Where(r => itemIds.Contains(r.BookingRequestItemId) && r.Status == StockReservationStatus.Reserved)
+            .Select(r => r.Id)
+            .ToListAsync(ct);
+        var userId = User.GetUserId();
+        foreach (var reservationId in reservedIds)
+        {
+            // Joins this transaction: gives the units back and writes the Release stock transaction,
+            // so the stock levels and the consumable-usage report agree.
+            var released = await stockService.ReleaseAsync(reservationId, userId, ct);
+            if (!released.Succeeded)
+            {
+                throw new InvalidOperationException($"Could not release reservation {reservationId}: {released.Detail}");
+            }
+        }
+
+        var studentEmail = await db.StudentProfiles
+            .Where(p => p.Id == bookingRequest.StudentId)
+            .Select(p => p.User.Email)
+            .SingleAsync(ct);
+        db.EmailNotifications.Add(EmailNotification.ForBookingRequest(
+            studentEmail, EmailTemplates.BookingCancelled, bookingRequest.Id, now));
+        return null;
     }
 
     [HttpPost("{id:guid}/submit")]
@@ -401,6 +508,34 @@ public sealed class BookingRequestsController(
             result[requestId] = (quotation, decision);
         }
         return result;
+    }
+
+    /// <summary>Each request's room bookings, oldest slot first. Callers pass only ids they have
+    /// already authorised.</summary>
+    private async Task<Dictionary<Guid, List<BookingRoomBookingResponse>>> LoadRoomBookingsAsync(
+        IReadOnlyCollection<Guid> requestIds, CancellationToken ct)
+    {
+        if (requestIds.Count == 0) return [];
+
+        var rows = await db.RoomBookings.AsNoTracking()
+            .Where(b => requestIds.Contains(b.BookingRequestId))
+            .OrderBy(b => b.StartsAt)
+            .Select(b => new
+            {
+                b.BookingRequestId,
+                Booking = new BookingRoomBookingResponse
+                {
+                    Id = b.Id,
+                    RoomId = b.RoomId,
+                    RoomName = b.Room.Name,
+                    StartsAt = b.StartsAt,
+                    EndsAt = b.EndsAt,
+                    Status = b.Status,
+                    CheckedInAt = b.CheckedInAt,
+                },
+            })
+            .ToListAsync(ct);
+        return rows.GroupBy(r => r.BookingRequestId).ToDictionary(g => g.Key, g => g.Select(r => r.Booking).ToList());
     }
 
     private async Task<StudentProfile?> GetOwnStudentProfileAsync(CancellationToken ct)
