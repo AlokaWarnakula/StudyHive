@@ -11,7 +11,7 @@ plan disagree, the master plan wins on requirements; this plan wins on order and
 
 ---
 
-## 1. Where we are (1 Oct 2026, `main` @ `49d92a5`)
+## 1. Where we are (3 Oct 2026, `main` @ `8418511`)
 
 **All features are built, and the headline workflow works for real:** the student submits on
 mobile → Planner, Scheduling, Resource and Validation agents run → a quotation is written → the
@@ -26,13 +26,13 @@ nothing faked.
 | S2 Rooms & Availability + Scheduling | ✅ Done |
 | S3 Consumables & Stock + Resource | ✅ Done |
 | S4 Costing, Validation, Approval & Audit (API, agent, web, mobile) | ✅ Done |
-| Email (Brevo) | ❌ Table exists, nothing is queued or sent. **Next: Tasks 2–3.** Brevo account, verified sender and API key are ready (in the root `.env`). |
+| Email (Brevo) | ✅ Done (Day 4 Tasks 2–3, PR #23); real email received in Inbox. |
 | Dockerfiles (api, agent, web) + compose stack | ✅ Done (Day 4 Task 1, PR #20) |
 | Deploy (Railway), APK | ❌ Not started. **No `mobile/android/` folder exists yet.** |
 | README, ADRs, screenshots, k6, report, video | ❌ Not started |
 
-Test baseline (must stay green): API **178**, agent **87**, web lint + **72** tests + build,
-mobile analyze + **57** tests (`flutter test --concurrency=1`).
+Test baseline (must stay green): API **188**, agent **87**, web lint + **72** tests + build,
+mobile analyze + **58** tests (`flutter test --concurrency=1`).
 
 History of what was built and how is in git (PRs #7–#21) and in the previous version of this file
 (`git show 8bbf1d7:PLAN.md`).
@@ -78,9 +78,9 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 |---|---|---|---|---|
 | ✅ 0 | Commit this plan | `docs/plan-remaining` | Wed | Plan merged to `main` |
 | ✅ 1 | Dockerfiles (api, agent, web) | `infra/dockerfiles` | Wed | All three run locally in Docker against the Docker DB |
-| 2 | Email queue | `s3/email` | Wed–Thu | Approval queues one email; rolled-back approval queues none |
-| 3 | Email sender | `s3/email` | Thu | Sent / retry / Failed / no-key tests green |
-| ✔ | **Check before moving on** | — | Thu | Full suite green + one real email received through Brevo |
+| ✅ 2 | Email queue | `s3/email` | Wed–Thu | Approval queues one email; rolled-back approval queues none |
+| ✅ 3 | Email sender | `s3/email` | Thu | Sent / retry / Failed / no-key tests green |
+| ✅ | **Check before moving on** | — | Thu | Full suite green + one real email received through Brevo |
 | 4 | Android folder + APK + QR stickers | `mobile/android` | Thu | APK installed on a phone, camera QR scan works on the real phone |
 | 5 | Deploy to Railway | `infra/railway` (if code changes) | Fri | One full workflow on the live URLs |
 | 6 | Full run-through + small leftovers | small fix branches | Fri | Happy path + every failure case run, each bug fixed with a test |
@@ -101,27 +101,29 @@ Do the tasks **in this order**, one branch and one PR each. Codex plans and revi
 - [x] Full test suite still green; CI green.
 
 **Task 2 + 3 — Email (Brevo)** — required by the master plan (S3 "email integration"). Branch `s3/email`.
-- [ ] **Task 2, Queue:** write `email_notifications` rows (`Queued`) **inside the same transaction** as the
+- [x] **Task 2, Queue:** write `email_notifications` rows (`Queued`) **inside the same transaction** as the
       event, so an email exists only if the event committed. The table has no body column: store
       `template` + `subject` + `booking_request_id`, and the sender renders the body at send time
       from the request, its latest quotation and decision:
   - Approval decision in `ApprovalsController` (Approved / Rejected / RevisionRequested) → student, with the librarian's comment and, for Approved, room, time and total.
   - Workflow ends `Failed` with `VALIDATION_FAILED` → student, with the revision note.
-- [ ] **Task 3, Sender:** `Services/EmailSenderService.cs`, a `BackgroundService` polling due rows
+- [x] **Task 3, Sender:** `Services/EmailSenderService.cs`, a `BackgroundService` polling due rows
       (`status = Queued AND (next_attempt_at IS NULL OR next_attempt_at <= now())`, index `ix_email_due`). Send via Brevo
       `POST https://api.brevo.com/v3/smtp/email` (header `api-key`). Success → `Sent` +
       `provider_message_id`. Failure → `attempt_count + 1`, `last_error`, back-off `next_attempt_at`;
       after `max_attempts` (3) → `Failed`. Behind an `IEmailProvider` interface so tests fake it.
-- [ ] **Config:** `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName`. With no key (dev, CI)
+- [x] **Config:** `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName`. With no key (dev, CI)
       the sender stays off and rows stay `Queued`; the app never fails because email is missing.
-- [ ] **Tests:** approval queues exactly one email and a rolled-back approval (409) queues none;
+- [x] **Tests:** approval queues exactly one email and a rolled-back approval (409) queues none;
       sender marks Sent; retries then Failed after 3 attempts; no key → nothing sent.
-- [ ] **Mobile copy:** "You will get a notification" (`create_request_screen.dart`,
+- [x] **Mobile copy:** "You will get a notification" (`create_request_screen.dart`,
       `approval_status_screen.dart`) → say "email".
 - [x] **Human (before the check):** create a free Brevo account, verify a sender address, create an API key.
       Done 1 Oct: `Brevo__ApiKey`, `Brevo__SenderEmail`, `Brevo__SenderName=StudyHive` are in the root
       `.env` (gitignored). No custom domain: a single verified sender, good enough for testing; check Spam.
-- [ ] **Check:** full suite green, then approve one request locally with the real key and confirm the email arrives.
+- [x] **Check:** full suite green, then approve one request locally with the real key and confirm the email arrives.
+      Done 3 Oct: an approved booking's email arrived in the Gmail Inbox (not Spam), Brevo message id
+      `<202610011538.64998624824@smtp-relay.mailin.fr>`.
 
 **Task 4 — Android APK.** Branch `mobile/android`.
 - [ ] **`mobile/` has no `android/` folder** (only `web/` and `windows/`), so no APK can be built
