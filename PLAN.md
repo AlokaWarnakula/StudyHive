@@ -143,7 +143,7 @@ Covers **C-03, C-02 (API part)**.
   resubmission does not consume another weekly slot.
 - **Verify:** the audit's C-03 and C-02 scripts now pass.
 
-#### A3. Check-in integrity — Claude, branch `fix/api-checkin`
+#### A3. Check-in integrity — Claude, branch `fix/api-checkin` — ✅ [PR #29](https://github.com/ItsAloka/StudyHive/pull/29)
 Covers **C-04, C-10, C-12 (check-in part)**.
 
 - **Time window (C-04).** In `RoomBookingsController.CheckIn` return **422 `outside-check-in-window`**
