@@ -127,7 +127,7 @@ Covers **C-01, CW-07 (stuck Pending reservations), C-07, C-06 (API part), C-15 (
   not checked-in → NoShow; response contains `roomBookings`.
 - **Verify:** rerun the audit's C-01 script (cancel → approve) and get 409.
 
-#### A2. Weekly limit and ask-for-change — Claude, branch `fix/api-eligibility-revision`
+#### A2. Weekly limit and ask-for-change — Claude, branch `fix/api-eligibility-revision` — ✅ [PR #28](https://github.com/ItsAloka/StudyHive/pull/28)
 Covers **C-03, C-02 (API part)**.
 
 - **Off-by-one (C-03).** The workflow's eligibility check must not count its own execution. Give
