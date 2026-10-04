@@ -22,20 +22,20 @@ Everything is built, every audit blocker and must-fix is merged, and **the app i
 | Railway: Postgres, api, agent (private), web | ✅ live — URLs in section 6 |
 | Production logins + demo data | ✅ seeded (`production-bootstrap.sql`, then `demo-data.sql`) |
 | `demo-data.sql` fix for a fresh database | 🟡 [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) open, CI green — merge first |
-| **Account self-service (passwords, profile)** | ❌ **missing — section 3** |
+| **Edit profile, change password, manual payment** | ❌ **missing — section 3** |
 | Live run-through, docs, evidence | ❌ sections 4–5 |
 
 Test baseline (must stay green, numbers only go up): API **241**, agent **87**, web lint + **109**
 tests + build, mobile analyze + **84** tests (`flutter test --concurrency=1`).
 
 ### Why section 3 exists
-A live check on 4 Oct found that **nobody can change a password** — not a student, not staff, not even
-an Admin (the old decision D5 removed the controls and there is no endpoint). A forgotten password can
-only be fixed by editing the database. A student also cannot correct their own name, department or
-year after sign-up, and mobile registration never asks for the real student number (the API invents
-`REG-xxxxxxxx…`). Section 3 fixes this. **Decided:** new accounts stay **active immediately — no
-admin approval of accounts** (every booking is still approved by a Librarian). Profile pictures are
-**out of scope**.
+A live check on 4 Oct found three gaps: **nobody can change a password**, a student **cannot edit
+their profile** (mobile registration even invents the student number as `REG-xxxxxxxx…`), and
+**fees are never settled** — every booking has a quotation total in LKR, but nothing records that
+the student paid. Section 3 fixes all three in the simplest way. **Decided:** new accounts stay
+**active immediately — no admin approval of accounts**; payment is **manual at the library desk**
+(no online payment); profile pictures, admin password reset and emailed "forgot password" are
+**future work**.
 
 ---
 
@@ -66,89 +66,88 @@ admin approval of accounts** (every booking is still approved by a Librarian). P
    - Auth endpoints use the `RateLimitPolicies.AuthEndpoints` limiter; staff actions write an audit row via `IAuditWriter`.
 6. **Tests:** API test classes run in parallel on one database, so never assume global counts stay
    fixed. Every new endpoint gets success, validation, auth (401/403) and not-yours tests.
-7. **Migrations:** none are expected for section 3 (all columns already exist). Never a second
+7. **Migrations:** exactly one for section 3 (payment columns on `quotations`, 3.1c). Never a second
    initial migration.
 8. **Never commit secrets or the production password.** Keys live in `.env` / `agent/.env`
    (gitignored) and in Railway. Never print `agent/.env`.
 
 ---
 
-## 3. Account self-service — Sun 5 Oct (do first)
+## 3. Profile, password and payment — Sun 5 Oct (do first)
 
 ### 3.0 Before starting (human, ~10 min)
 - [ ] Merge [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) (demo-data fix).
 - [ ] Railway → Postgres → Settings → Networking: **Public Access is OFF** (it was turned on only to
       run the seed scripts).
 
-### 3.1 API — branch `feat/api-account-self-service`
+### 3.1 API — branch `feat/api-profile-password-payment`
 
-**a) Change own password** — any signed-in user (Student, Librarian, StoreOfficer, Admin).
-- `POST /api/auth/change-password` (`?client=web` supported like login/refresh), body
-  `{ currentPassword, newPassword }`, rate limited with `AuthEndpoints`.
-- Wrong `currentPassword` → **400** ValidationProblem with a field error on `currentPassword`.
-  `newPassword` 8–100 chars and different from the current one, else 400.
-- On success: hash and save, **revoke every refresh token of that user** (sign out other devices),
-  then issue a fresh token pair exactly like login (web: new refresh cookie) so the current device
-  stays signed in. Write an audit row (`user.password_changed`, no password data in it).
-- Note for the report: other devices' access tokens stay valid until they expire
-  (`Jwt:AccessTokenMinutes`); their refresh fails, so they are signed out at the next refresh.
-
-**b) Student edits own profile.**
+**a) Student edits own profile** (this is also how a `REG-…` student number gets fixed).
 - `PUT /api/student-profiles/me` — `StudentOnly`, body
   `{ fullName, studentNumber, department, yearOfStudy }` (lengths as in registration /
-  `CreateStudentProfileRequest`; year 1–5).
-- `studentNumber` must be unique → **409** `Student number already registered` if another profile has it.
-- Returns `StudentProfileResponse`. `fullName` is stored on `users.full_name`.
+  `CreateStudentProfileRequest`; year 1–5). `fullName` is stored on `users.full_name`.
+- `studentNumber` must be unique → **409** `Student number already registered`.
+- Returns `StudentProfileResponse`. 404 if the student has no profile yet (they use the existing
+  onboarding `POST /api/student-profiles`).
 - **Not editable here:** email, `maxBookingsPerWeek`, `penaltyPoints`, `suspendedUntil`, `isActive`
-  (Admin-only via the existing `PUT /api/student-profiles/{id}`). 404 if the student has no profile yet
-  (they use the existing onboarding `POST /api/student-profiles`).
+  (Admin-only via the existing `PUT /api/student-profiles/{id}`).
 
-**c) Admin resets a password** (the "forgot password" path: the student asks the library desk).
-- `PUT /api/users/{id}/password` — `AdminOnly`, body `{ newPassword }` (8–100). Implement only this
-  action in `Controllers/Admin/UsersController.cs`; the other scaffold actions stay 501.
-- Revoke every refresh token of that user; audit row `user.password_reset` with the admin's id.
-- 404 for an unknown user. An Admin cannot reset their own password here (use 3.1a) → 422.
+**b) Change own password.**
+- `POST /api/auth/change-password`, any signed-in user (the API allows every role; only the mobile
+  app gets a screen), body `{ currentPassword, newPassword }`, rate limited with `AuthEndpoints`.
+- Wrong `currentPassword` → **400** ValidationProblem with a field error on `currentPassword`;
+  `newPassword` 8–100 chars and different from the current one, else 400.
+- On success: hash and save, **revoke every refresh token of that user** (signs out other devices),
+  then issue a fresh token pair exactly like login so this device stays signed in. Audit row
+  `user.password_changed` (no password data in it).
 
-**d) Real student number at sign-up.**
-- `RegisterRequest` gets optional `studentNumber` (same rules as onboarding). When it is supplied with
-  `department` + `yearOfStudy`, use it (unique → 409) instead of `REG-…`. Old clients without it keep
-  working.
+**c) Manual payment, recorded by the Librarian.** The student pays the quotation total at the library
+desk (cash/card, outside the system); the Librarian records it.
+- **Migration** (the only one): `quotations` gets `paid_at timestamptz NULL`,
+  `paid_by uuid NULL` (FK `users`), `payment_reference varchar(60) NULL` (receipt number).
+- `POST /api/booking-requests/{id}/payment` — `[Authorize(Roles = Roles.Librarian)]` (same as
+  approvals), body `{ paymentReference? }`.
+  Marks the request's **Approved** quotation as paid (`paid_at = now`, `paid_by = librarian`).
+  - 404 unknown request; **409** if it has no Approved quotation (not approved yet, rejected,
+    cancelled) or it is **already paid**.
+  - Audit row `quotation.payment_recorded` with the amount and reference.
+- Add `paidAt` and `paymentReference` to `BookingQuotationSummaryResponse` (the request's
+  `latestQuotation`) and to the quotation detail response, so web and mobile can show it.
+- Payment does **not** block check-in (keep it simple); it is shown as Paid / Unpaid everywhere.
 
-- [ ] Tests for a–d (including: changed password logs in, old one fails; other session's refresh is
-      rejected after a change/reset; student cannot edit limits/penalties through `/me`; Student and
-      Librarian get 403 on the reset endpoint; duplicate student number → 409 on `/me` and register).
+- [ ] Tests for a–c (profile: own edit works, duplicate number 409, limits/penalties unchanged, staff
+      403; password: new works and old fails, other session's refresh rejected, wrong current 400;
+      payment: Librarian marks an approved request paid, second time 409, not-approved 409, Student
+      and StoreOfficer 403, `paidAt` appears in the request and quotation responses).
 - [ ] Swagger shows the three new endpoints.
 
-### 3.2 Mobile — branch `feat/mobile-account-self-service` (after 3.1 merges)
-- [ ] **Profile → "Edit profile"** screen: full name, student number, department, year; Save calls
-      `PUT /api/student-profiles/me`; field errors and the 409 shown on the right field; profile
-      refreshes after saving. Email, limit, penalties and suspension stay read-only.
-- [ ] **Profile → "Change password"** screen: current, new, confirm new (must match, 8+ chars);
-      calls `POST /api/auth/change-password`; stores the returned tokens; success message; a wrong
-      current password shows on that field.
-- [ ] Replace the note "To change your password, ask at the library desk." with
-      "Forgot your password? Ask at the library desk — an admin can reset it." on the **login** screen
-      only.
-- [ ] **Registration** asks for the student number and sends `studentNumber`.
-- [ ] Widget tests for both new screens and the new register field.
+### 3.2 Mobile — branch `feat/mobile-profile-password-payment` (after 3.1 merges)
+- [ ] **Profile → "Edit profile"**: full name, student number, department, year → `PUT
+      /api/student-profiles/me`; errors on the right field (409 on student number); profile refreshes.
+      Email, limit, penalties and suspension stay read-only.
+- [ ] **Profile → "Change password"**: current, new, confirm (must match, 8+ chars) → `POST
+      /api/auth/change-password`; store the returned tokens; success message.
+- [ ] **Payment status** on the approved booking / quotation screen and in **Booking history**:
+      "Paid · <date> · receipt <ref>" or "Unpaid — pay Rs <total> at the library desk".
+- [ ] Remove the note "To change your password, ask at the library desk." from Profile; the login
+      screen keeps "Forgot your password? Ask at the library desk."
+- [ ] Widget tests for the two new screens and both payment states.
 - [ ] Rebuild the release APK with the live URL (section 6) and reinstall on the emulator / phone.
 
-### 3.3 Web — branch `feat/web-account-self-service` (after 3.1 merges; parallel with 3.2)
-- [ ] **Change password** for every staff role: an item next to "Sign out" in the header opens a
-      dialog (current, new, confirm) → `POST /api/auth/change-password?client=web`.
-- [ ] **Students page (Admin only): "Reset password"** action per student → dialog with a new
-      temporary password + confirm → `PUT /api/users/{userId}/password`; success toast says to give
-      the password to the student in person. Hidden for Librarian/StoreOfficer
-      (add `users.resetPassword` to `web/src/auth/permissions.ts`).
-- [ ] Tests for both dialogs and the role gate.
+### 3.3 Web — branch `feat/web-payment` (after 3.1 merges; parallel with 3.2)
+- [ ] **Request detail (Librarian):** for an Approved/Completed request, a **"Mark as paid"** button
+      → small dialog with an optional receipt number → `POST /api/booking-requests/{id}/payment`.
+      After saving, show "Paid on <date> · receipt <ref>" instead of the button.
+      Hidden for StoreOfficer and Admin (add `payments.record` to `web/src/auth/permissions.ts`).
+- [ ] **Requests list:** a "Payment" column or badge (Paid / Unpaid / —) for approved requests.
+- [ ] Tests for the button, the role gate and both states.
 
 ### 3.4 Check (after 3.1–3.3 merge and Railway redeploys)
-- [ ] On the **live** site: student changes password on the phone → old password fails, new works;
-      student edits profile → the librarian sees the new name/department on the Students page;
-      admin resets a student's password → the student signs in with it.
-- [ ] Update `README.md` (what's built / known limits) and record decision **D5 (revised)** in
-      section 7: change password + admin reset + student profile edit are built; self-service
-      "forgot password" by email is future work.
+- [ ] On the **live** site: student edits profile and student number on the phone → the librarian sees
+      it on the Students page; student changes password → old fails, new works; librarian marks an
+      approved booking paid → the phone's booking history shows Paid.
+- [ ] Update `README.md` (what's built / out of scope) and decisions **D5 (revised)** and **D6** in
+      section 7.
 
 ---
 
@@ -183,10 +182,10 @@ share the **production password** chosen on 4 Oct (not the dev one; never writte
 ### Mon 6 Oct: **submit**
 
 ### If we run out of time — cut in this order
-1. Web staff "Change password" dialog (3.3 first item) — the admin reset stays.
-2. Registration student-number field (3.1d / 3.2) — the admin can't fix it either, so mention it.
+1. Requests-list payment column (3.3 second item) — the detail page still shows it.
+2. Payment status in mobile Booking history (keep it on the booking screen).
 3. k6 run (describe the plan instead).
-Never cut: the student change-password screen, the admin reset, the live run-through.
+Never cut: edit profile, change password, "Mark as paid", the live run-through.
 
 ---
 
@@ -239,9 +238,14 @@ stack: `--dart-define=API_BASE_URL=http://10.0.2.2:8080`.
 
 ## 7. Decisions and viva / evidence reminders
 - **D1** web session uses an httpOnly refresh cookie (`SameSite=None; Secure` in production).
-- **D5 (revised 4 Oct):** change password (all roles), admin password reset and student profile edit
-  are built in section 3; emailed "forgot password" links are future work. **No admin approval of
-  new accounts** — accounts are active at once, bookings are approved by a Librarian.
+- **D5 (revised 4 Oct):** students edit their own profile (incl. student number) and change their
+  password in the app (section 3). Admin password reset and emailed "forgot password" are future work.
+  **No admin approval of new accounts** — accounts are active at once, bookings are approved by a
+  Librarian.
+- **D6 Payment (4 Oct):** fees are paid **manually at the library desk**; the Librarian records it
+  ("Mark as paid", optional receipt number) and students see Paid / Unpaid on their bookings. Online
+  payment is future work (the third-party integration requirement is already met by Brevo email and
+  QR check-in).
 - **D2** full user management (roles UI) is future work.
 - Headline claims each have a test: **overlap rejected** (S2, exclusion constraint `no_double_booking` → 409), **last item can't be reserved twice** (S3, `chk_never_oversold`), **hostile objective changes nothing** (S4 golden case), **approval is one transaction** (S4, clash → 409 and nothing written), **cancelled requests cannot be approved** (A1) and **check-in only inside its window** (A3).
 - We store tool inputs/outputs, validation results, timings, errors. We do **not** store chain-of-thought, raw prompts, passwords or API keys (say this in the report).
