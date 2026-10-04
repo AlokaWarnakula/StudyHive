@@ -268,5 +268,45 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
         return new SeededBooking(booking.Id, request.Id, room.Id, room.Name, room.QrCode);
     }
 
+    [Fact]
+    public async Task Staff_See_Who_Booked_Each_Slot_And_Check_In_State_But_Students_Do_Not()
+    {
+        var (studentClient, profileId) = await CreateStudentClientAsync();
+        var start = new DateTimeOffset(2035, 4, 2, 4, 30, 0, TimeSpan.Zero);
+        var kept = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, start, 1);
+        await SeedBookingAsync(profileId, RoomBookingStatus.NoShow, start.AddHours(2), 1, kept.RoomId);
+        using (var scope = factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().RoomBookings
+                .Where(b => b.Id == kept.BookingId)
+                .ExecuteUpdateAsync(u => u.SetProperty(b => b.CheckedInAt, start.AddMinutes(3)));
+        }
+        var range = $"from={Uri.EscapeDataString(start.AddHours(-1).ToString("O"))}&to={Uri.EscapeDataString(start.AddHours(5).ToString("O"))}";
+
+        var librarian = factory.CreateClient();
+        var (librarianId, _, token) = await TestSupport.CreateAndLoginStaffAsync(factory, librarian, UserRole.Librarian);
+        _userIds.Add(librarianId);
+        librarian.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var staffSlots = await librarian.GetFromJsonAsync<List<RoomScheduleSlotResponse>>(
+            $"/api/rooms/{kept.RoomId}/schedule?{range}", TestSupport.JsonOptions);
+
+        staffSlots.Should().HaveCount(2, "staff also see the no-show");
+        var first = staffSlots![0];
+        first.BookingRequestId.Should().Be(kept.RequestId);
+        first.Objective.Should().Be("Step 8 endpoint test");
+        first.StudentName.Should().NotBeNullOrWhiteSpace();
+        first.BookingStatus.Should().Be("Confirmed");
+        first.CheckedInAt.Should().Be(start.AddMinutes(3));
+        staffSlots[1].BookingStatus.Should().Be("NoShow");
+
+        var studentSlots = await studentClient.GetFromJsonAsync<List<RoomScheduleSlotResponse>>(
+            $"/api/rooms/{kept.RoomId}/schedule?{range}", TestSupport.JsonOptions);
+        studentSlots.Should().ContainSingle("students see only Confirmed slots");
+        studentSlots![0].Objective.Should().BeNull();
+        studentSlots[0].StudentName.Should().BeNull();
+        studentSlots[0].BookingRequestId.Should().BeNull();
+        studentSlots[0].CheckedInAt.Should().BeNull();
+    }
+
     private sealed record SeededBooking(Guid BookingId, Guid RequestId, Guid RoomId, string RoomName, string QrCode);
 }
