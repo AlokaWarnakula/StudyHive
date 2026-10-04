@@ -187,14 +187,16 @@ Covers **W-01, web token refresh, CW-02**.
 - **Tests:** 401 → refresh → retry; refresh fails → login; reload restores session (mock refresh);
   validation errors show the field message.
 
-#### A6. Deploy safety — Codex (doc) + human, before Task 5
+#### A6. Deploy safety — Claude (doc) + human, before Task 5 — ✅ [PR #33](https://github.com/ItsAloka/StudyHive/pull/33)
 Covers **committed development keys**.
 
-- [ ] Railway API service: `ASPNETCORE_ENVIRONMENT=Production`, fresh `Jwt__SigningKey` and
+- [x] Railway API service: `ASPNETCORE_ENVIRONMENT=Production`, fresh `Jwt__SigningKey` and
       `Agent__InternalApiKey` (never the values in `appsettings.Development.json`), and the
       Development settings file is never mounted or copied into the image (Dockerignore already
       excludes it — verify with `docker run … ls`).
-- [ ] Add this checklist to section 5 and to the README deploy steps.
+- [x] Add this checklist to section 5 and to the README deploy steps. (Image check 4 Oct: `/app`
+      holds only `appsettings.json`, `ASPNETCORE_ENVIRONMENT=Production`. The human still ticks
+      the Railway items at deploy time.)
 
 ### Phase B — must-fix (after Phase A merges)
 
@@ -380,6 +382,26 @@ student for repeated end-to-end runs.
 Audit test data in the dev DB is named `AUDIT …` (requests, room "AUDIT Room Z", equipment
 "AUDIT Kit", consumable "AUDIT Glue sticks", supplier "AUDIT Supplies"); all non-request rows are
 inactive. Delete or ignore before recording the demo.
+
+### Deploy safety checklist (A6, before Task 5)
+
+Before the first Railway deploy, and again after any change to the API service settings:
+
+- [ ] API service variable `ASPNETCORE_ENVIRONMENT=Production` (the image's default; **never
+      `Development`**, which would turn on the dev seed and its shared password).
+- [ ] Fresh secrets generated for this deploy, never copied from `appsettings.Development.json`:
+      `Jwt__SigningKey` (at least 32 bytes; the API refuses to start without it) and
+      `Agent__InternalApiKey` (the same value as the agent's `INTERNAL_API_KEY`). For example,
+      `openssl rand -base64 48`. Paste them into Railway only, never into a file in the repo.
+- [ ] `appsettings.Development.json` is never mounted or copied into a deployed image.
+      `api/.dockerignore` excludes it; check with
+      `docker build -t studyhive-api:check api && docker run --rm --entrypoint ls studyhive-api:check /app`.
+      The only settings file listed must be `appsettings.json` (checked 4 Oct 2026: only
+      `appsettings.json`, environment `Production`, no `dev-only` values inside).
+- [ ] `AuthCookie__SameSite` stays `None` with `AuthCookie__Secure=true` (the `appsettings.json`
+      default), and `Cors__AllowedOrigins__0` is the web service's exact public URL (no `*`).
+- [ ] After the deploy, signing in with `librarian@studyhive.dev` and the dev password must
+      **fail**, which proves the dev seed did not run.
 
 **LLM:** xAI Grok via `agent/app/llm.py` `chat(instructions, data)`, the only network seam. The LLM
 never decides anything: it writes the Planner summary and the Validation revision note, with a

@@ -155,6 +155,26 @@ Draft, Processing, PendingApproval, Approved, Rejected, Cancelled, Completed and
 workflow plans and step logs make every S1 status screen useful immediately. The seed is serialized
 with a PostgreSQL advisory lock and is safe to run repeatedly or from concurrent local test hosts.
 
+## Deploying to Railway: safety checklist
+
+The full service and variable list is in [`PLAN.md`](PLAN.md) section 6. Before the first Railway deploy, and again after any change to the API service settings:
+
+- [ ] API service variable `ASPNETCORE_ENVIRONMENT=Production` (the image's default; **never
+      `Development`**, which would turn on the dev seed and its shared password).
+- [ ] Fresh secrets generated for this deploy, never copied from `appsettings.Development.json`:
+      `Jwt__SigningKey` (at least 32 bytes; the API refuses to start without it) and
+      `Agent__InternalApiKey` (the same value as the agent's `INTERNAL_API_KEY`). For example,
+      `openssl rand -base64 48`. Paste them into Railway only, never into a file in the repo.
+- [ ] `appsettings.Development.json` is never mounted or copied into a deployed image.
+      `api/.dockerignore` excludes it; check with
+      `docker build -t studyhive-api:check api && docker run --rm --entrypoint ls studyhive-api:check /app`.
+      The only settings file listed must be `appsettings.json` (checked 4 Oct 2026: only
+      `appsettings.json`, environment `Production`, no `dev-only` values inside).
+- [ ] `AuthCookie__SameSite` stays `None` with `AuthCookie__Secure=true` (the `appsettings.json`
+      default), and `Cors__AllowedOrigins__0` is the web service's exact public URL (no `*`).
+- [ ] After the deploy, signing in with `librarian@studyhive.dev` and the dev password must
+      **fail**, which proves the dev seed did not run.
+
 ## Relay build order
 
 Shared foundation (this scaffold) → **S1** Requests & Workflow + Planner agent → **S2** Rooms &
