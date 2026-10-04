@@ -174,6 +174,9 @@ The full service and variable list is in [`PLAN.md`](PLAN.md) section 6. Before 
       default), and `Cors__AllowedOrigins__0` is the web service's exact public URL (no `*`).
 - [ ] After the deploy, signing in with `librarian@studyhive.dev` and the dev password must
       **fail**, which proves the dev seed did not run.
+- [ ] Then create the demo logins and data with a **fresh** password (never the dev one):
+      `psql "$DATABASE_URL" -v staff_password='…' -f infra/seed/production-bootstrap.sql`, then
+      `psql "$DATABASE_URL" -f infra/seed/demo-data.sql`.
 
 ## Relay build order
 

@@ -335,7 +335,9 @@ Covers **CW-01, CW-03, CW-05 (web), CW-06 (web), CW-07 (web), CW-08 (web), CW-12
 
 ### Task 5 — Deploy to Railway (Sun 5 Oct morning)
 - [ ] **Human:** create the Railway project and set the secrets (section 5, plus the A6 checklist).
-- [ ] Production has no dev seeder: create the 4 role logins (one-off script), then run
+- [ ] Production has no dev seeder: run `infra/seed/production-bootstrap.sql` (the 4 role logins,
+      the demo student and the 3 base consumables; password passed with `-v staff_password=…`,
+      hashed by pgcrypto bcrypt, checked against the API login on 4 Oct), then
       `infra/seed/demo-data.sql`.
 - [ ] Smoke-test: `/health`, `/swagger`, web login, one full workflow on the live URLs.
 - [ ] Rebuild the APK with the live API URL and reinstall it.
