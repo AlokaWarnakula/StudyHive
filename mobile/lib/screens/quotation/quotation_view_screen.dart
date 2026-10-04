@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../utils/colombo_time.dart';
 import '../../api/api_client.dart';
 import '../../data/demo_seed.dart';
 import '../../models/booking_request.dart';
@@ -192,8 +193,8 @@ class _QuotationViewScreenState extends State<QuotationViewScreen> {
             for (final item in quote.lineItems)
               Kv(
                 _live
-                    ? '${item.itemName} · ${item.itemType == 'Room' ? '${_qty(item.quantity)} h' : '× ${_qty(item.quantity)}'}'
-                    : item.itemName,
+                    ? '${formatItemName(item.itemName)} · ${item.itemType == 'Room' ? '${_qty(item.quantity)} h' : '× ${_qty(item.quantity)}'}'
+                    : formatItemName(item.itemName),
                 formatRs(item.lineTotal),
               ),
             if (_live) ...[
