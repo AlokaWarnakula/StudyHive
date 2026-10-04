@@ -231,6 +231,25 @@ public class AccountSelfServiceTests(WebApplicationFactory<Program> factory)
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Payment_On_A_Cancelled_Approved_Booking_Is_Refused()
+    {
+        var (requestId, _, _, client) = await SeedRequestAsync(approved: true);
+        using (var scope = factory.Services.CreateScope())
+        {
+            // Cancelling an approved booking keeps its quotation Approved.
+            var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
+            await db.BookingRequests.Where(r => r.Id == requestId)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, BookingRequestStatus.Cancelled));
+        }
+        var (librarianId, _, librarianToken) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Librarian);
+        _createdUserIds.Add(librarianId);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", librarianToken);
+
+        (await client.PostAsJsonAsync($"/api/booking-requests/{requestId}/payment", new { }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
     [Theory]
     [InlineData(UserRole.StoreOfficer)]
     [InlineData(UserRole.Admin)]

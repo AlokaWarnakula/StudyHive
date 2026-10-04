@@ -388,7 +388,18 @@ public sealed class BookingRequestsController(
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RecordPayment(Guid id, RecordPaymentRequest request, CancellationToken ct)
     {
-        if (!await db.BookingRequests.AsNoTracking().AnyAsync(r => r.Id == id, ct)) return NotFound();
+        var requestStatus = await db.BookingRequests.AsNoTracking()
+            .Where(r => r.Id == id).Select(r => (BookingRequestStatus?)r.Status).SingleOrDefaultAsync(ct);
+        if (requestStatus is null) return NotFound();
+        // Cancelling an approved booking leaves its quotation Approved, so check the request too.
+        if (requestStatus is not (BookingRequestStatus.Approved or BookingRequestStatus.Completed))
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Request has no approved quotation",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: $"Only an approved booking can be marked as paid; this request is '{requestStatus}'.");
+        }
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         await db.Database.ExecuteSqlInterpolatedAsync(
