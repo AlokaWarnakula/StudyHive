@@ -3,6 +3,57 @@ import '../models/quotation.dart';
 import '../models/workflow_status.dart';
 import 'api_client.dart';
 
+/// The fields of a request the student fills in; the body of both create (POST) and edit (PUT).
+class BookingRequestFields {
+  final String objective;
+  final int groupSize;
+  final String preferredDateFrom;
+  final String preferredDateTo;
+  final String preferredTimeFrom;
+  final String preferredTimeTo;
+  final int sessionsRequired;
+  final int sessionDurationMinutes;
+  final double budget;
+  final List<BookingRequestItem> items;
+  final String? notes;
+
+  const BookingRequestFields({
+    required this.objective,
+    required this.groupSize,
+    required this.preferredDateFrom,
+    required this.preferredDateTo,
+    required this.preferredTimeFrom,
+    required this.preferredTimeTo,
+    required this.sessionsRequired,
+    required this.sessionDurationMinutes,
+    required this.budget,
+    this.items = const [],
+    this.notes,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'objective': objective,
+    'groupSize': groupSize,
+    'preferredDateFrom': preferredDateFrom,
+    'preferredDateTo': preferredDateTo,
+    'preferredTimeFrom': preferredTimeFrom,
+    'preferredTimeTo': preferredTimeTo,
+    'sessionsRequired': sessionsRequired,
+    'sessionDurationMinutes': sessionDurationMinutes,
+    'budget': budget,
+    'notes': notes,
+    'items':
+        items
+            .map(
+              (item) => {
+                'consumableId': item.consumableId,
+                'quantity': item.quantity,
+              },
+            )
+            .toList(),
+  };
+}
+
 /// S1: the student-facing subset of the booking request lifecycle.
 class BookingRequestsApi {
   final ApiClient _client;
@@ -64,6 +115,21 @@ class BookingRequestsApi {
                         .toList(),
               },
             )
+            as Map<String, dynamic>;
+    return BookingRequest.fromJson(response);
+  }
+
+  Future<BookingRequest> createDraft(BookingRequestFields fields) async {
+    final response =
+        await _client.post('/api/booking-requests', body: fields.toJson())
+            as Map<String, dynamic>;
+    return BookingRequest.fromJson(response);
+  }
+
+  /// PUT — only a Draft or RevisionRequested request can be edited (the latter becomes a Draft).
+  Future<BookingRequest> update(String requestId, BookingRequestFields fields) async {
+    final response =
+        await _client.put('/api/booking-requests/$requestId', body: fields.toJson())
             as Map<String, dynamic>;
     return BookingRequest.fromJson(response);
   }

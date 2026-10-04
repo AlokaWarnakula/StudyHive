@@ -30,4 +30,12 @@ class StudentProfilesApi {
     }) as Map<String, dynamic>;
     return StudentProfile.fromJson(response);
   }
+
+  /// GET /api/student-profiles/{id}/eligibility: the server's own weekly count (AUDIT C-16).
+  Future<Eligibility> eligibility(String profileId) async {
+    final response =
+        await _client.get('/api/student-profiles/$profileId/eligibility')
+            as Map<String, dynamic>;
+    return Eligibility.fromJson(response);
+  }
 }

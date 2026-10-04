@@ -120,7 +120,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
         PrimaryButton('Book this room',
             onPressed: selected.isActive
                 ? () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const CreateRequestScreen()))
+                    // C-09: the form remembers which room the student picked.
+                    builder: (_) => CreateRequestScreen(roomName: selected.name)))
                 : null),
         SecondaryButton('See free times',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(

@@ -123,9 +123,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Center(
-                      child: ShLink('Forgot password',
-                          onPressed: () {}, fontSize: 13),
+                    const Center(
+                      // D5: no reset flow in this release.
+                      child: FNote('Forgot your password? Ask at the library desk.'),
                     ),
                   ],
                 ),

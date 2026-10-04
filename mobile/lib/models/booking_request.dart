@@ -68,6 +68,43 @@ class BookingDecisionSummary {
       );
 }
 
+/// One room booking made for an approved request (BookingRequestResponse.roomBookings): where and
+/// when to go, and whether the student checked in (AUDIT C-06).
+class RoomBookingSummary {
+  final String id;
+  final String roomId;
+  final String roomName;
+  final DateTime startsAt;
+  final DateTime endsAt;
+
+  /// Confirmed, Cancelled, Completed or NoShow.
+  final String status;
+  final DateTime? checkedInAt;
+
+  const RoomBookingSummary({
+    required this.id,
+    required this.roomId,
+    required this.roomName,
+    required this.startsAt,
+    required this.endsAt,
+    required this.status,
+    this.checkedInAt,
+  });
+
+  factory RoomBookingSummary.fromJson(Map<String, dynamic> json) =>
+      RoomBookingSummary(
+        id: json['id'] as String,
+        roomId: json['roomId'] as String,
+        roomName: json['roomName'] as String,
+        startsAt: DateTime.parse(json['startsAt'] as String),
+        endsAt: DateTime.parse(json['endsAt'] as String),
+        status: json['status'] as String,
+        checkedInAt: json['checkedInAt'] == null
+            ? null
+            : DateTime.parse(json['checkedInAt'] as String),
+      );
+}
+
 /// Mirrors StudyHive.Api's BookingRequestResponse (see
 /// api/src/StudyHive.Api/Controllers/BookingRequests/BookingRequestContracts.cs).
 class BookingRequest {
@@ -88,6 +125,7 @@ class BookingRequest {
   final String? latestWorkflowId;
   final BookingQuotationSummary? latestQuotation;
   final BookingDecisionSummary? latestDecision;
+  final List<RoomBookingSummary> roomBookings;
   final String createdAt;
   final String updatedAt;
 
@@ -109,6 +147,7 @@ class BookingRequest {
     required this.latestWorkflowId,
     this.latestQuotation,
     this.latestDecision,
+    this.roomBookings = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -144,7 +183,61 @@ class BookingRequest {
             : BookingDecisionSummary.fromJson(
               json['latestDecision'] as Map<String, dynamic>,
             ),
+    roomBookings:
+        (json['roomBookings'] as List<dynamic>? ?? [])
+            .map((e) => RoomBookingSummary.fromJson(e as Map<String, dynamic>))
+            .toList()
+          ..sort((a, b) => a.startsAt.compareTo(b.startsAt)),
     createdAt: json['createdAt'] as String,
     updatedAt: json['updatedAt'] as String,
   );
+
+  /// The room times that still stand (not cancelled), earliest first.
+  List<RoomBookingSummary> get activeBookings =>
+      roomBookings.where((b) => b.status != 'Cancelled').toList();
+
+  /// Where and when to go next: the first booking that has not ended, else the last one.
+  RoomBookingSummary? get slot {
+    final active = activeBookings;
+    if (active.isEmpty) return null;
+    final now = DateTime.now();
+    for (final booking in active) {
+      if (booking.endsAt.isAfter(now)) return booking;
+    }
+    return active.last;
+  }
+
+  /// When the student checked in to [slot], if they did.
+  DateTime? get checkedInAt => slot?.checkedInAt;
+
+  /// An approved booking whose every room time is over (C-06: it belongs in Past).
+  bool get hasEnded {
+    final active = activeBookings;
+    if (active.isEmpty) return false;
+    final now = DateTime.now();
+    return active.every(
+      (b) => b.status == 'Completed' || b.status == 'NoShow' || !b.endsAt.isAfter(now),
+    );
+  }
+
+  /// A student may check in to an Approved booking that has not ended and is not already checked in.
+  bool get canCheckIn => status == 'Approved' && !hasEnded && checkedInAt == null;
+
+  /// What the API allows to be cancelled (A1): an undecided request, or an Approved one whose first
+  /// room time has not started.
+  bool get canCancel {
+    const undecided = {
+      'Draft',
+      'Submitted',
+      'Processing',
+      'PendingApproval',
+      'RevisionRequested',
+    };
+    if (undecided.contains(status)) return true;
+    if (status != 'Approved') return false;
+    final active = activeBookings;
+    if (active.isEmpty) return true;
+    return active.first.startsAt.isAfter(DateTime.now()) &&
+        active.every((b) => b.checkedInAt == null);
+  }
 }

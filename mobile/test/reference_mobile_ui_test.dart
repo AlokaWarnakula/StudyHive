@@ -39,7 +39,9 @@ void main() {
     // M-01: one primary action, the rest secondary.
     expect(find.text('Book a study room in a few taps.'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
-    expect(find.text('Forgot password'), findsOneWidget);
+    // D5: no reset flow, so the dead link became a note.
+    expect(find.text('Forgot password'), findsNothing);
+    expect(find.text('Forgot your password? Ask at the library desk.'), findsOneWidget);
 
     await tapAndSettle(tester, find.text('Create an account'));
 

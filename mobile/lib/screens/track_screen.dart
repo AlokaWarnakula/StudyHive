@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api/api_client.dart';
 import '../models/booking_request.dart';
 import '../state/booking_requests_provider.dart';
+import '../utils/colombo_time.dart';
 import '../widgets/studyhive_ui.dart';
 import 'booking_detail_screen.dart';
 import 'rooms/qr_check_in_screen.dart';
+import 'workflow_progress_screen.dart';
 
 /// M-12 "My bookings" — GET /api/booking-requests?status=. The three tabs are a
 /// segmented control, not Material chips.
+///
+/// AUDIT C-06: an Approved booking whose room times are over (Completed or NoShow) is Past, and
+/// tiles show the booked room and slot. C-11: Draft tiles can be sent or deleted.
 class TrackScreen extends StatefulWidget {
   const TrackScreen({super.key});
 
@@ -17,7 +23,6 @@ class TrackScreen extends StatefulWidget {
 }
 
 class _TrackScreenState extends State<TrackScreen> {
-  static const _activeStatuses = {'Approved'};
   static const _waitingStatuses = {
     'Draft',
     'Submitted',
@@ -69,7 +74,7 @@ class _TrackScreenState extends State<TrackScreen> {
                       : 'No ${_tab.toLowerCase()} bookings.'),
                 ])
               else
-                for (final request in filtered) _BookingTile(request: request),
+                for (final request in filtered) BookingTile(request: request),
             ],
           ),
         );
@@ -78,51 +83,128 @@ class _TrackScreenState extends State<TrackScreen> {
   }
 
   bool _matchesTab(BookingRequest request) => switch (_tab) {
-        'Active' => _activeStatuses.contains(request.status),
+        'Active' => request.status == 'Approved' && !request.hasEnded,
         'Waiting' => _waitingStatuses.contains(request.status),
-        'Past' => _pastStatuses.contains(request.status),
+        'Past' => _pastStatuses.contains(request.status) ||
+            (request.status == 'Approved' && request.hasEnded),
         _ => true,
       };
 }
 
-class _BookingTile extends StatelessWidget {
+/// One request in My bookings. Public so its states can be tested on their own.
+class BookingTile extends StatefulWidget {
   final BookingRequest request;
 
-  const _BookingTile({required this.request});
+  const BookingTile({super.key, required this.request});
 
+  @override
+  State<BookingTile> createState() => _BookingTileState();
+}
+
+class _BookingTileState extends State<BookingTile> {
   /// The reference dims settled bookings and keeps live ones at full strength.
   static const _settled = {'Completed', 'Rejected', 'Cancelled', 'Failed'};
 
+  bool _busy = false;
+
+  Future<void> _push(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    if (mounted) await context.read<BookingRequestsProvider>().refresh(); // C-08
+  }
+
+  Future<void> _send() async {
+    setState(() => _busy = true);
+    try {
+      await context.read<BookingRequestsProvider>().submit(widget.request.id);
+      if (mounted) await _push(WorkflowProgressScreen(requestId: widget.request.id));
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this draft?'),
+        content: const Text('It was never sent, so nobody has seen it yet.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep it')),
+          FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete draft')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await context.read<BookingRequestsProvider>().cancel(widget.request.id);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    void open() => Navigator.of(context).push(
-          MaterialPageRoute(
-              builder: (_) => BookingDetailScreen(requestId: request.id)),
-        );
+    final request = widget.request;
+    final slot = request.slot;
+    final checkedInAt = request.checkedInAt;
+    final ended = request.status == 'Approved' && request.hasEnded;
 
     return Tile(
-      opacity: _settled.contains(request.status) ? 0.75 : null,
-      onTap: open,
+      opacity: _settled.contains(request.status) || ended ? 0.75 : null,
+      onTap: () => _push(BookingDetailScreen(requestId: request.id)),
       children: [
         Kv.both(
           leading: Text(request.objective,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-          trailing: ShTag.forStatus(request.status),
+          trailing: ShTag.forStatus(checkedInAt != null
+              ? 'Checked in'
+              : ended
+                  ? 'Completed'
+                  : request.status),
         ),
-        FNote(
-            '${request.preferredDateFrom} · ${_hhmm(request.preferredTimeFrom)} – ${_hhmm(request.preferredTimeTo)} · Rs. ${request.budget.toStringAsFixed(0)}'),
-        if (request.status == 'Approved')
+        FNote(slot != null
+            ? '${colomboSlot(slot.startsAt, slot.endsAt)} · ${slot.roomName}'
+            : '${request.preferredDateFrom} · ${_hhmm(request.preferredTimeFrom)} – ${_hhmm(request.preferredTimeTo)} · Rs. ${request.budget.toStringAsFixed(0)}'),
+        if (checkedInAt != null) FNote('Checked in at ${colomboHhmm(checkedInAt)}'),
+        if (request.canCheckIn)
           SecondaryButton(
             'Check in',
             icon: Icons.qr_code_2,
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                  builder: (_) => QrCheckInScreen(bookingId: request.id)),
-            ),
+            onPressed: () => _push(QrCheckInScreen(bookingId: request.id)),
           ),
-        if (request.status == 'Rejected') ShLink('See reason', onPressed: open),
+        if (request.status == 'Draft')
+          Row(children: [
+            Expanded(
+                child: PrimaryButton(_busy ? 'Sending…' : 'Send',
+                    onPressed: _busy ? null : _send)),
+            const SizedBox(width: 10),
+            Expanded(
+                child: SecondaryButton('Delete',
+                    onPressed: _busy ? null : _delete)),
+          ]),
+        if (request.status == 'RevisionRequested')
+          ShLink('See what to change',
+              onPressed: () => _push(BookingDetailScreen(requestId: request.id))),
+        if (request.status == 'Rejected')
+          ShLink('See reason',
+              onPressed: () => _push(BookingDetailScreen(requestId: request.id))),
       ],
     );
   }

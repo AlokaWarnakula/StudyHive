@@ -34,3 +34,25 @@ class StudentProfile {
         isActive: json['isActive'] as bool,
       );
 }
+
+/// Mirrors StudyHive.Api's EligibilityResponse: the verdict and this Colombo week's usage.
+class Eligibility {
+  final bool eligible;
+  final List<String> reasons;
+  final int usedThisWeek;
+  final int maxBookingsPerWeek;
+
+  const Eligibility({
+    required this.eligible,
+    required this.reasons,
+    required this.usedThisWeek,
+    required this.maxBookingsPerWeek,
+  });
+
+  factory Eligibility.fromJson(Map<String, dynamic> json) => Eligibility(
+        eligible: json['eligible'] as bool,
+        reasons: (json['reasons'] as List<dynamic>? ?? []).cast<String>(),
+        usedThisWeek: json['usedThisWeek'] as int? ?? 0,
+        maxBookingsPerWeek: json['maxBookingsPerWeek'] as int? ?? 0,
+      );
+}

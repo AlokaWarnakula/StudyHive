@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/booking_requests_api.dart';
+import '../models/booking_request.dart';
 import '../state/booking_requests_provider.dart';
 import '../state/consumables_provider.dart';
 import '../theme/app_theme.dart';
@@ -31,8 +33,27 @@ String _longDate(DateTime value) =>
 /// Step 2's consumables come from the live catalogue through [ConsumablesProvider]; its
 /// selection (shared with the full-screen [SelectConsumablesScreen]) is sent as the request's
 /// `items`. Without a registered provider the step says item selection is unavailable.
+///
+/// AUDIT C-09: "Book this room" and "Use a slot" pass the room and time they came from, so the form
+/// starts there and says which room was preferred (advisory: the librarian confirms the final room;
+/// the preference travels in the request notes). AUDIT C-02: with [editing], the form opens a
+/// RevisionRequested (or Draft) request pre-filled and sends it back with PUT then submit.
+/// AUDIT C-11: a submit that fails keeps the saved draft, and sending again retries that draft.
 class CreateRequestScreen extends StatefulWidget {
-  const CreateRequestScreen({super.key});
+  final DateTime? initialDate;
+  final TimeOfDay? initialFrom;
+  final TimeOfDay? initialTo;
+  final String? roomName;
+  final BookingRequest? editing;
+
+  const CreateRequestScreen({
+    super.key,
+    this.initialDate,
+    this.initialFrom,
+    this.initialTo,
+    this.roomName,
+    this.editing,
+  });
 
   @override
   State<CreateRequestScreen> createState() => _CreateRequestScreenState();
@@ -50,13 +71,52 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
   String? _error;
   bool _submitting = false;
 
+  /// The saved draft this form sends (C-11): set after the first save, reused on every retry.
+  String? _draftId;
+
   @override
   void initState() {
     super.initState();
-    // A new request starts with no items, whatever an abandoned earlier one picked.
+    final editing = widget.editing;
+    if (editing != null) {
+      _draftId = editing.id;
+      _objective.text = editing.objective;
+      _budget.text = editing.budget.toStringAsFixed(0);
+      _people = editing.groupSize;
+      _date = DateTime.tryParse(editing.preferredDateFrom) ?? _date;
+      _timeFrom = _parseTime(editing.preferredTimeFrom) ?? _timeFrom;
+      _timeTo = _parseTime(editing.preferredTimeTo) ?? _timeTo;
+    } else {
+      _date = widget.initialDate ?? _date;
+      _timeFrom = widget.initialFrom ?? _timeFrom;
+      _timeTo = widget.initialTo ?? _timeTo;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _consumables?.clearSelection();
+      if (!mounted) return;
+      final consumables = _consumables;
+      // A new request starts with no items, whatever an abandoned earlier one picked; an edited
+      // one starts with its own.
+      consumables?.clearSelection();
+      for (final item in editing?.items ?? const <BookingRequestItem>[]) {
+        consumables?.setQuantity(item.consumableId, item.quantity);
+      }
     });
+  }
+
+  static TimeOfDay? _parseTime(String value) {
+    final parts = value.split(':');
+    if (parts.length < 2) return null;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    return hour == null || minute == null ? null : TimeOfDay(hour: hour, minute: minute);
+  }
+
+  /// The preference the librarian sees (C-09): advisory, carried in the notes.
+  String? get _notes {
+    final editingNotes = widget.editing?.notes;
+    if (editingNotes != null) return editingNotes;
+    final room = widget.roomName;
+    return room == null ? null : 'Preferred room: $room';
   }
 
   @override
@@ -74,7 +134,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
     final selected = await showDatePicker(
       context: context,
       initialDate: _date,
-      firstDate: DateTime.now(),
+      firstDate: DateUtils.dateOnly(DateTime.now()),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (selected != null) setState(() => _date = selected);
@@ -119,26 +179,34 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
       _submitting = true;
     });
     final consumables = _consumables;
-    final items = consumables?.selectedItems ?? const [];
+    final provider = context.read<BookingRequestsProvider>();
+    final fields = BookingRequestFields(
+      objective: _objective.text.trim(),
+      groupSize: _people,
+      preferredDateFrom: _isoDate(_date),
+      preferredDateTo: _isoDate(_date),
+      preferredTimeFrom: _isoTime(_timeFrom),
+      preferredTimeTo: _isoTime(_timeTo),
+      sessionsRequired: 1,
+      sessionDurationMinutes: _durationMinutes,
+      budget: double.parse(_budget.text),
+      items: consumables?.selectedItems ?? const [],
+      notes: _notes,
+    );
     try {
-      final created =
-          await context.read<BookingRequestsProvider>().createAndSubmit(
-                objective: _objective.text.trim(),
-                groupSize: _people,
-                preferredDateFrom: _isoDate(_date),
-                preferredDateTo: _isoDate(_date),
-                preferredTimeFrom: _isoTime(_timeFrom),
-                preferredTimeTo: _isoTime(_timeTo),
-                sessionsRequired: 1,
-                sessionDurationMinutes: _durationMinutes,
-                budget: double.parse(_budget.text),
-                items: items,
-              );
+      // Save first (create once, then update the same draft), then send it. If the send fails the
+      // draft is kept, so "Send request" again retries it rather than creating a second one.
+      final draftId = _draftId;
+      final saved = draftId == null
+          ? await provider.createDraft(fields)
+          : await provider.updateDraft(draftId, fields);
+      _draftId = saved.id;
+      await provider.submit(saved.id);
       if (!mounted) return;
       consumables?.clearSelection();
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-            builder: (_) => WorkflowProgressScreen(requestId: created.id)),
+            builder: (_) => WorkflowProgressScreen(requestId: saved.id)),
       );
     } on ApiException catch (e) {
       setState(() => _error = e.toString());
@@ -169,7 +237,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         title: Text(switch (_step) {
           1 => 'Add items',
           2 => 'Review request',
-          _ => 'Book a room',
+          _ => widget.editing != null ? 'Edit request' : 'Book a room',
         }),
       ),
       body: AnimatedSwitcher(
@@ -192,6 +260,13 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         children: [
           const StepperBar(step: 0),
           const Lbl('Step 1 of 3 · What and when'),
+          if (widget.editing != null)
+            const FNote('Change what the librarian asked for, then send it again.'),
+          if (widget.roomName != null)
+            Tile(children: [
+              Kv('Preferred room', widget.roomName!),
+              const FNote('The librarian confirms the final room.'),
+            ]),
           ShTextField(
             label: 'What do you need the room for?',
             controller: _objective,
@@ -355,7 +430,11 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
             'We will find a free room, price it and send it to the librarian for approval. You will get an email when they decide.'),
         if (_error != null) InlineError(_error!),
         PrimaryButton(
-          _submitting ? 'Sending…' : 'Send request',
+          _submitting
+              ? 'Sending…'
+              : widget.editing != null
+                  ? 'Send again'
+                  : 'Send request',
           onPressed: _submitting ? null : _submit,
         ),
       ],
