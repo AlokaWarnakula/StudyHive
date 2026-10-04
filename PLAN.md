@@ -21,8 +21,8 @@ Everything is built, every audit blocker and must-fix is merged, and **the app i
 | API, agent, web, mobile (all audit fixes) | ✅ merged to `main` (PRs #27–#42), CI green |
 | Railway: Postgres, api, agent (private), web | ✅ live — URLs in section 6 |
 | Production logins + demo data | ✅ seeded (`production-bootstrap.sql`, then `demo-data.sql`) |
-| `demo-data.sql` fix for a fresh database | 🟡 [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) open, CI green — merge first |
-| **Edit profile, change password, manual payment** | 🟡 built and tested — [#45](https://github.com/ItsAloka/StudyHive/pull/45) API, [#46](https://github.com/ItsAloka/StudyHive/pull/46) web, [#47](https://github.com/ItsAloka/StudyHive/pull/47) mobile; merge in that order, then the live check (3.4) |
+| `demo-data.sql` fix for a fresh database | ✅ [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) merged |
+| **Edit profile, change password, manual payment** | 🟡 built and tested — [#45](https://github.com/ItsAloka/StudyHive/pull/45) API, [#46](https://github.com/ItsAloka/StudyHive/pull/46) web, [#47](https://github.com/ItsAloka/StudyHive/pull/47) mobile — merged 4 Oct (main f3c8ba3); live check (3.4) next |
 | Live run-through, docs, evidence | ❌ sections 4–5 |
 
 Test baseline (must stay green, numbers only go up): API **254**, agent **87**, web lint + **117**
@@ -76,8 +76,8 @@ the student paid. Section 3 fixes all three in the simplest way. **Decided:** ne
 ## 3. Profile, password and payment — Sun 5 Oct (do first)
 
 ### 3.0 Before starting (human, ~10 min)
-- [ ] Merge [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) (demo-data fix).
-- [ ] Railway → Postgres → Settings → Networking: **Public Access is OFF** (it was turned on only to
+- [x] Merge [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) (demo-data fix).
+- [x] Railway → Postgres → Settings → Networking: **Public Access is OFF** (it was turned on only to
       run the seed scripts).
 
 ### 3.1 API — branch `feat/api-profile-password-payment`
