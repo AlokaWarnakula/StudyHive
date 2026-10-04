@@ -187,7 +187,7 @@ Covers **W-01, web token refresh, CW-02**.
 - **Tests:** 401 → refresh → retry; refresh fails → login; reload restores session (mock refresh);
   validation errors show the field message.
 
-#### A6. Deploy safety — Claude (doc) + human, before Task 5 — ✅ PR_LINK
+#### A6. Deploy safety — Claude (doc) + human, before Task 5 — ✅ [PR #33](https://github.com/ItsAloka/StudyHive/pull/33)
 Covers **committed development keys**.
 
 - [x] Railway API service: `ASPNETCORE_ENVIRONMENT=Production`, fresh `Jwt__SigningKey` and
