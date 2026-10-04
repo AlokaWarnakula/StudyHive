@@ -50,6 +50,7 @@ Map<String, dynamic> _tokens(String access, String refresh) => {
 /// data calls succeed only with the newest access token.
 class _FakeApi {
   bool refreshOk = true;
+  int refreshFailStatus = 401;
   bool refreshRevalidates = true;
   int refreshCalls = 0;
   String validToken = 'access-1';
@@ -63,7 +64,7 @@ class _FakeApi {
     if (path == '/api/auth/refresh') {
       refreshCalls++;
       await Future<void>.delayed(refreshDelay);
-      if (!refreshOk) return _json({'title': 'Unauthorized'}, 401);
+      if (!refreshOk) return _json({'title': 'Refresh failed'}, refreshFailStatus);
       if (refreshRevalidates) validToken = 'access-2';
       return _json(_tokens('access-2', 'refresh-2'));
     }
@@ -110,6 +111,23 @@ void main() {
     expect(auth.signedOutReason, AuthProvider.sessionExpiredMessage);
     expect(store.values, isEmpty, reason: 'both tokens are removed from the secure store');
   });
+
+  for (final status in [429, 500]) {
+    test('a $status from refresh keeps the session', () async {
+      final (auth, api, store) = await _signedIn();
+      api.refreshOk = false;
+      api.refreshFailStatus = status;
+
+      await expectLater(
+        auth.apiClient.get('/api/booking-requests/booking-1'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 401)),
+      );
+
+      expect(auth.isAuthenticated, isTrue, reason: 'only a rejected refresh token ends the session');
+      expect(auth.signedOutReason, isNull);
+      expect(store.values['refresh_token'], 'refresh-1');
+    });
+  }
 
   test('concurrent 401s share one refresh', () async {
     final (auth, api, _) = await _signedIn();

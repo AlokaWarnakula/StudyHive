@@ -52,7 +52,7 @@ class AuthProvider extends ChangeNotifier {
   /// AUDIT C-05: the access token lives 30 minutes. On a 401 the API client calls this once; it
   /// exchanges the stored refresh token for a new pair, and every concurrent caller waits on the
   /// same exchange. If the refresh token is rejected the session ends and the sign-in screen says
-  /// why; a network failure keeps the session (the original call's error is shown instead).
+  /// why; any other failure keeps the session (the original call's error is shown instead).
   Future<bool> refreshAfterUnauthorized() =>
       _refreshing ??= _refresh().whenComplete(() => _refreshing = null);
 
@@ -75,8 +75,9 @@ class AuthProvider extends ChangeNotifier {
       );
       return true;
     } on ApiException catch (e) {
-      if (e.status == 0) return false; // offline or timed out: keep the session
-      await _expireSession();
+      // Only a rejected refresh token ends the session. Offline, a timeout, a 429 from the auth
+      // rate limiter or a 5xx keep it, and the original call's error is shown instead.
+      if (e.status == 400 || e.status == 401) await _expireSession();
       return false;
     }
   }

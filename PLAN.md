@@ -156,7 +156,7 @@ Covers **C-04, C-10, C-12 (check-in part)**.
 - **Tests:** early → 422, inside window → 200, after end → 422; student `GET /api/rooms/{id}` has no
   `qrCode`, librarian has it; wrong code via request id → 422 with detail.
 
-#### A4. Mobile session — Claude, branch `fix/mobile-session`
+#### A4. Mobile session — Claude, branch `fix/mobile-session` — ✅ [PR #30](https://github.com/ItsAloka/StudyHive/pull/30)
 Covers **C-05, C-12 (mobile client part)**.
 
 - **Refresh on 401 (C-05).** `ApiClient` gets an `onUnauthorized` hook; `AuthProvider` implements it
@@ -167,7 +167,8 @@ Covers **C-05, C-12 (mobile client part)**.
   message when `detail` is missing. Add a request **timeout** (15 s) with a friendly message.
 - **Tests:** fake client returns 401 then 200 after refresh → screen shows data; refresh 401 →
   logged out; concurrent 401s trigger one refresh; validation body → field message shown.
-- **Verify on emulator:** leave the app 31 minutes, open a booking → it loads.
+- **Verify on emulator:** leave the app 31 minutes, open a booking → it loads. (Done with the API's
+  `Jwt__AccessTokenMinutes=2`: after expiry the booking detail loaded and the refresh token rotated.)
 
 #### A5. Web session — Codex, branch `fix/web-session`
 Covers **W-01, web token refresh, CW-02**.
