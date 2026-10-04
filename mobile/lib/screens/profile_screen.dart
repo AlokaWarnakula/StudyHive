@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../theme/app_theme.dart';
 import '../state/auth_provider.dart';
 import '../state/booking_requests_provider.dart';
 import '../state/profile_provider.dart';
@@ -69,7 +70,19 @@ class _ProfileView extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Ph(label: 'avatar', width: 64, height: 64),
+            // C-21: initials, not an avatar placeholder (there are no profile photos).
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: AppColors.accent200,
+              foregroundColor: AppColors.accent800,
+              child: Text(
+                _initials(auth.studentName),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -271,4 +284,18 @@ class _OnboardingFormState extends State<_OnboardingForm> {
       ),
     );
   }
+}
+
+/// "Asha Perera" → "AP"; a missing name → "S" (student).
+String _initials(String? name) {
+  final parts =
+      (name ?? '')
+          .trim()
+          .split(RegExp(r'\s+'))
+          .where((p) => p.isNotEmpty)
+          .toList();
+  if (parts.isEmpty) return 'S';
+  final first = parts.first[0];
+  final last = parts.length > 1 ? parts.last[0] : '';
+  return (first + last).toUpperCase();
 }

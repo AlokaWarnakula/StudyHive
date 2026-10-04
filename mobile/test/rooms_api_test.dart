@@ -50,7 +50,8 @@ void main() {
       expect(requested.queryParameters['capacity'], '3');
       expect(requested.queryParameters['equipmentTypeId'], 'projector-1');
       expect(rooms.single.name, 'B-204');
-      expect(rooms.single.availabilityLabel, 'Active');
+      // C-17: an active room carries no invented tag; "Free now" comes from the availability search.
+      expect(rooms.single.availabilityLabel, isNull);
     },
   );
 

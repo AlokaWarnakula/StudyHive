@@ -1,12 +1,8 @@
 import '../models/quotation.dart';
 import 'api_client.dart';
 
-/// S4 (Costing, Validation, Approval & Audit) — student-facing quotation API. SCAFFOLD.
-///
-/// Written and typed against the locked schema (`api/src/StudyHive.Api/Data/Entities/S4/`), but
-/// the endpoints return 501 until S4 implements
-/// `api/src/StudyHive.Api/Controllers/Approvals/QuotationsController.cs`. Nothing here invents
-/// data.
+/// S4 (Costing, Validation, Approval & Audit) — the live student-facing quotation API, served by
+/// `api/src/StudyHive.Api/Controllers/Approvals/QuotationsController.cs`.
 ///
 /// Screens this backs: M-08 Your quotation, plus the approval-status and booking-history views
 /// reached from it.
@@ -18,7 +14,7 @@ class QuotationsApi {
   final ApiClient _client;
   const QuotationsApi(this._client);
 
-  /// TODO(S4): GET /api/quotations/{id} — backs M-08.
+  /// GET /api/quotations/{id} — backs M-08.
   ///
   /// A student may read their own; the ownership check belongs on the server, not here.
   Future<QuotationView> getById(String id) async {
@@ -49,10 +45,7 @@ class QuotationsApi {
     );
   }
 
-  /// TODO(S4): GET /api/booking-requests?status=Completed — backs the booking history view.
-  ///
-  /// Reads S1's endpoint, which already exists; what is missing is the cost, which only becomes
-  /// real once quotations do.
+  /// GET /api/booking-requests?status=Completed — backs the booking history view.
   Future<List<BookingHistoryItem>> history() async {
     final response = await _client
         .get('/api/booking-requests?status=Completed&pageSize=100') as Map<String, dynamic>;

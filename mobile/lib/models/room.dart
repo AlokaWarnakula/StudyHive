@@ -1,8 +1,7 @@
 /// S2 (Rooms & Availability) view models — the mobile half of the contract in
 /// web/src/api/rooms.ts, over the locked schema (api/src/StudyHive.Api/Data/Entities/S2/*.cs).
 ///
-/// Paired with lib/api/rooms_api.dart and lib/state/rooms_provider.dart, which exist as scaffolds:
-/// the calls are written but the endpoints behind them return 501 until S2 implements
+/// Paired with lib/api/rooms_api.dart and lib/state/rooms_provider.dart, over the live
 /// api/src/StudyHive.Api/Controllers/Rooms/.
 class RoomListItem {
   final String id;
@@ -12,8 +11,8 @@ class RoomListItem {
   final double hourlyRate;
   final bool isActive;
 
-  /// The free/busy line the room list and detail header show. Supplied by the
-  /// availability source; falls back to the room's active flag.
+  /// The free/busy line the room list and detail header show, or null for no tag. Only real
+  /// sources set it (AUDIT C-17): an inactive room, or the availability search.
   final String? availability;
 
   const RoomListItem({
@@ -26,8 +25,7 @@ class RoomListItem {
     this.availability,
   });
 
-  String get availabilityLabel =>
-      availability ?? (isActive ? 'Free now' : 'Maintenance today');
+  String? get availabilityLabel => availability;
 }
 
 class RoomEquipmentItem {

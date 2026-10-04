@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../utils/colombo_time.dart';
 import '../../api/api_client.dart';
 import '../../data/demo_seed.dart';
 import '../../models/booking_request.dart';
@@ -196,8 +197,9 @@ class _ApprovalStatusScreenState extends State<ApprovalStatusScreen> {
         if (quotation != null)
           PrimaryButton(
             'View cost breakdown',
+            // C-20: swap with Cost breakdown instead of stacking the two screens on each other.
             onPressed:
-                () => Navigator.of(context).push(
+                () => Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
                     builder: (_) => QuotationViewScreen(requestId: request.id),
                   ),
@@ -236,11 +238,9 @@ class _Preview extends StatelessWidget {
   );
 }
 
+/// CW-11: "Mon 6 Oct, 14:05" in Colombo time, whatever the phone's own zone.
 String _stamp(String iso) {
   final parsed = DateTime.tryParse(iso);
-  if (parsed == null) return iso;
-  final local = parsed.toLocal();
-  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '${local.day}/${local.month}/${local.year} $hour:$minute ${local.hour < 12 ? 'AM' : 'PM'}';
+  if (parsed == null) return '';
+  return '${colomboDay(parsed)}, ${colomboHhmm(parsed)}';
 }

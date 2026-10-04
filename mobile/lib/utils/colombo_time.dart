@@ -28,3 +28,12 @@ String colomboDay(DateTime instant) {
 /// "Mon 6 Oct · 14:00–16:00"
 String colomboSlot(DateTime startsAt, DateTime endsAt) =>
     '${colomboDay(startsAt)} · ${colomboHhmm(startsAt)}–${colomboHhmm(endsAt)}';
+
+/// AUDIT C-18: "Good morning" until noon, "Good afternoon" until 17:00, then "Good evening",
+/// all by the Colombo clock.
+String greetingAt(DateTime instant) {
+  final hour = toColombo(instant).hour;
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}

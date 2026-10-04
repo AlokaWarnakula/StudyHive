@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../models/workflow_status.dart';
+import '../theme/app_theme.dart';
 import '../state/booking_requests_provider.dart';
 import '../widgets/studyhive_ui.dart';
 import 'quotation/approval_status_screen.dart';
@@ -126,10 +127,19 @@ class _WorkflowProgressScreenState extends State<WorkflowProgressScreen> {
       ),
       body: ScreenBody(
         children: [
-          const Ph(label: 'progress illustration', height: 130),
+          const SizedBox(
+            height: 130,
+            child: Center(
+              child: Icon(
+                Icons.manage_search,
+                size: 72,
+                color: AppColors.accent,
+              ),
+            ),
+          ),
           const Heading('Finding a free room for you'),
           const Text(
-            'This usually takes under a minute. You can close the app — we will notify you.',
+            'This usually takes under a minute. You can close the app — we will email you.',
             style: TextStyle(fontSize: 14),
           ),
           Timeline(steps: _steps()),

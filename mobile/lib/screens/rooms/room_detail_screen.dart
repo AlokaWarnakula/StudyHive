@@ -46,94 +46,145 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     }
     if (widget.roomId == null) {
       return Scaffold(
-          appBar: AppBar(title: const Text('Room details')),
-          body: const PreviewUnavailable(
-              message: 'Select a room to view its details.'));
+        appBar: AppBar(title: const Text('Room details')),
+        body: const PreviewUnavailable(
+          message: 'Select a room to view its details.',
+        ),
+      );
     }
-    return Consumer<RoomsProvider>(builder: (context, provider, _) {
-      final selected =
-          provider.selected?.id == widget.roomId ? provider.selected : null;
-      if (provider.loading && selected == null) {
-        return Scaffold(
+    return Consumer<RoomsProvider>(
+      builder: (context, provider, _) {
+        final selected =
+            provider.selected?.id == widget.roomId ? provider.selected : null;
+        if (provider.loading && selected == null) {
+          return Scaffold(
             appBar: AppBar(title: const Text('Room details')),
-            body: const Center(child: CircularProgressIndicator()));
-      }
-      if (provider.error != null && selected == null) {
-        return Scaffold(
+            body: const Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (provider.error != null && selected == null) {
+          return Scaffold(
             appBar: AppBar(title: const Text('Room details')),
-            body: PreviewUnavailable(message: provider.error!));
-      }
-      if (selected == null) {
-        return Scaffold(
+            body: PreviewUnavailable(message: provider.error!),
+          );
+        }
+        if (selected == null) {
+          return Scaffold(
             appBar: AppBar(title: const Text('Room details')),
             body: const PreviewUnavailable(
-                message: 'Room details are unavailable.'));
-      }
-      return _content(context, selected);
-    });
+              message: 'Room details are unavailable.',
+            ),
+          );
+        }
+        return _content(context, selected);
+      },
+    );
   }
 
-  Widget _content(BuildContext context, RoomDetail selected,
-      {bool preview = false}) {
+  Widget _content(
+    BuildContext context,
+    RoomDetail selected, {
+    bool preview = false,
+  }) {
+    // C-19 / C-21: a normal app bar keeps the header clear of the status bar; there is no room
+    // photo in the API, so no photo placeholder either.
+    final availability =
+        preview
+            ? selected.availabilityLabel
+            : context.read<RoomsProvider>().availabilityLabelFor(selected);
     return Scaffold(
-        body: Stack(children: [
-      ScreenBody(padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
-        const Ph(label: 'room photo', height: 170),
-        if (preview) const DemoPreviewBanner(),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-              child: Column(
+      appBar: AppBar(title: const Text('Room details')),
+      body: ScreenBody(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          if (preview) const DemoPreviewBanner(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Heading('Room ${selected.name}'),
-                FNote(selected.building)
-              ])),
-          const SizedBox(width: 12),
-          ShTag.forStatus(selected.availabilityLabel),
-        ]),
-        Tile(children: [
-          Kv('Seats', '${selected.capacity} people'),
-          Kv('Rate', 'Rs. ${selected.hourlyRate.toStringAsFixed(0)} per hour'),
-          if (preview) const Kv('Opening hours', '8 AM – 8 PM'),
-        ]),
-        const Lbl('Equipment in this room'),
-        if (selected.equipment.isEmpty)
-          const Tile(children: [Text('No equipment is assigned to this room.')])
-        else
-          Column(children: [
-            for (final item in selected.equipment) ...[
-              Kv.widget(
-                  label: item.name.split(' ·').first,
-                  trailing: preview
-                      ? ShTag(
-                          item.name.contains('repair')
-                              ? 'Under repair'
-                              : 'Working',
-                          tone: item.name.contains('repair')
-                              ? TagTone.neutral
-                              : TagTone.accent)
-                      : ShTag('${item.quantity} installed',
-                          tone: TagTone.accent)),
-              const SizedBox(height: 8),
-            ]
-          ]),
-        PrimaryButton('Book this room',
-            onPressed: selected.isActive
-                ? () => Navigator.of(context).push(MaterialPageRoute(
-                    // C-09: the form remembers which room the student picked.
-                    builder: (_) => CreateRequestScreen(roomName: selected.name)))
-                : null),
-        SecondaryButton('See free times',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => RoomScheduleScreen(
-                      room: selected, previewEnabled: preview),
-                ))),
-      ]),
-      SafeArea(
-          child: IconButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              tooltip: 'Back',
-              icon: const Icon(Icons.chevron_left, size: 26))),
-    ]));
+                    Heading('Room ${selected.name}'),
+                    FNote(selected.building),
+                  ],
+                ),
+              ),
+              if (availability != null) ...[
+                const SizedBox(width: 12),
+                ShTag.forStatus(availability),
+              ],
+            ],
+          ),
+          Tile(
+            children: [
+              Kv('Seats', '${selected.capacity} people'),
+              Kv(
+                'Rate',
+                'Rs. ${selected.hourlyRate.toStringAsFixed(0)} per hour',
+              ),
+              if (preview) const Kv('Opening hours', '8 AM – 8 PM'),
+            ],
+          ),
+          const Lbl('Equipment in this room'),
+          if (selected.equipment.isEmpty)
+            const Tile(
+              children: [Text('No equipment is assigned to this room.')],
+            )
+          else
+            Column(
+              children: [
+                for (final item in selected.equipment) ...[
+                  Kv.widget(
+                    label: item.name.split(' ·').first,
+                    trailing:
+                        preview
+                            ? ShTag(
+                              item.name.contains('repair')
+                                  ? 'Under repair'
+                                  : 'Working',
+                              tone:
+                                  item.name.contains('repair')
+                                      ? TagTone.neutral
+                                      : TagTone.accent,
+                            )
+                            : ShTag(
+                              '${item.quantity} installed',
+                              tone: TagTone.accent,
+                            ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          PrimaryButton(
+            'Book this room',
+            onPressed:
+                selected.isActive
+                    ? () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        // C-09: the form remembers which room the student picked.
+                        builder:
+                            (_) => CreateRequestScreen(roomName: selected.name),
+                      ),
+                    )
+                    : null,
+          ),
+          SecondaryButton(
+            'See free times',
+            onPressed:
+                () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder:
+                        (_) => RoomScheduleScreen(
+                          room: selected,
+                          previewEnabled: preview,
+                        ),
+                  ),
+                ),
+          ),
+        ],
+      ),
+    );
   }
 }

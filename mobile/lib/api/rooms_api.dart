@@ -27,7 +27,7 @@ class RoomsApi {
           final json = e as Map<String, dynamic>;
           return _roomFromJson(
             json,
-            availability: json['isActive'] as bool ? 'Active' : 'Inactive',
+            availability: json['isActive'] as bool ? null : 'Inactive',
           );
         }).toList();
     return rooms;
@@ -71,6 +71,7 @@ class RoomsApi {
     final query = <String, String>{
       'from': from,
       'to': to,
+      'pageSize': '100',
       if (capacity != null) 'capacity': '$capacity',
       if (equipmentTypeId != null) 'equipmentTypeId': equipmentTypeId,
     };
