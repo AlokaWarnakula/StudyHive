@@ -127,6 +127,15 @@ describe("PLAN.md 3.3 payment", () => {
     expect(screen.queryByRole("button", { name: "Mark as paid" })).not.toBeInTheDocument();
   });
 
+  it("a cancelled booking with an Approved quotation has no payment tile", async () => {
+    vi.mocked(getBookingRequest).mockResolvedValue(approvedRequest({ status: "Cancelled" }) as never);
+    renderDetail();
+
+    expect(await screen.findByText("Group revision", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark as paid" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Unpaid")).not.toBeInTheDocument();
+  });
+
   it("a request that is not approved has no payment tile", async () => {
     vi.mocked(getBookingRequest).mockResolvedValue(
       approvedRequest({ status: "PendingApproval", latestQuotation: { ...quotation, status: "Proposed" } }) as never,

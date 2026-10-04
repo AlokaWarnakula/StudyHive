@@ -56,9 +56,10 @@ export interface BookingQuotationSummary {
 }
 
 /** "Paid" / "Unpaid" for a request with an Approved quotation; null when payment does not apply. */
-export function paymentState(request: Pick<BookingRequest, "latestQuotation">): "Paid" | "Unpaid" | null {
+export function paymentState(request: Pick<BookingRequest, "latestQuotation" | "status">): "Paid" | "Unpaid" | null {
   const q = request.latestQuotation;
-  if (!q || q.status !== "Approved") return null;
+  // A cancelled booking keeps its Approved quotation; payment applies only while it stands.
+  if (!q || q.status !== "Approved" || (request.status !== "Approved" && request.status !== "Completed")) return null;
   return q.paidAt ? "Paid" : "Unpaid";
 }
 
