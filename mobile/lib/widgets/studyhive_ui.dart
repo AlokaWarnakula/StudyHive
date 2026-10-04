@@ -91,7 +91,14 @@ class ShTag extends StatelessWidget {
 
   /// Maps a workflow/domain status onto the tone the reference gives it.
   factory ShTag.forStatus(String status, {Key? key}) =>
-      ShTag(status, key: key, tone: toneFor(status));
+      ShTag(statusLabel(status), key: key, tone: toneFor(status));
+
+  /// An API enum name in words: "PendingApproval" → "Pending approval". Labels that are already
+  /// words ("Checked in", "Free now") are left alone.
+  static String statusLabel(String status) => status.contains(' ')
+      ? status
+      : status.replaceAllMapped(
+          RegExp(r'(?<=[a-z])([A-Z])'), (m) => ' ${m[1]!.toLowerCase()}');
 
   static TagTone toneFor(String status) {
     final s = status.toLowerCase();
