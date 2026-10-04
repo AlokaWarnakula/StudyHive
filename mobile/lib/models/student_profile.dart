@@ -2,6 +2,9 @@
 class StudentProfile {
   final String id;
   final String userId;
+
+  /// Lives on the user; null from an older API that did not send it.
+  final String? fullName;
   final String studentNumber;
   final String department;
   final int yearOfStudy;
@@ -13,6 +16,7 @@ class StudentProfile {
   const StudentProfile({
     required this.id,
     required this.userId,
+    this.fullName,
     required this.studentNumber,
     required this.department,
     required this.yearOfStudy,
@@ -25,6 +29,7 @@ class StudentProfile {
   factory StudentProfile.fromJson(Map<String, dynamic> json) => StudentProfile(
         id: json['id'] as String,
         userId: json['userId'] as String,
+        fullName: json['fullName'] as String?,
         studentNumber: json['studentNumber'] as String,
         department: json['department'] as String,
         yearOfStudy: json['yearOfStudy'] as int,

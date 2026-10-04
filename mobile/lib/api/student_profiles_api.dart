@@ -31,6 +31,22 @@ class StudentProfilesApi {
     return StudentProfile.fromJson(response);
   }
 
+  /// PUT /api/student-profiles/me (PLAN.md 3.1a): the student's own name, number, department, year.
+  Future<StudentProfile> updateMine({
+    required String fullName,
+    required String studentNumber,
+    required String department,
+    required int yearOfStudy,
+  }) async {
+    final response = await _client.put('/api/student-profiles/me', body: {
+      'fullName': fullName,
+      'studentNumber': studentNumber,
+      'department': department,
+      'yearOfStudy': yearOfStudy,
+    }) as Map<String, dynamic>;
+    return StudentProfile.fromJson(response);
+  }
+
   /// GET /api/student-profiles/{id}/eligibility: the server's own weekly count (AUDIT C-16).
   Future<Eligibility> eligibility(String profileId) async {
     final response =

@@ -169,6 +169,31 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// PLAN.md 3.1b: change the password. The API signs out every other device and hands back a
+  /// fresh pair, which replaces this device's session so it stays signed in.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final response = await _apiClient.post('/api/auth/change-password', body: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    }) as Map<String, dynamic>;
+    final user = response['user'] as Map<String, dynamic>;
+    await _applySession(
+      accessToken: response['accessToken'] as String,
+      refreshToken: response['refreshToken'] as String,
+      studentName: user['fullName'] as String,
+      studentEmail: user['email'] as String,
+    );
+  }
+
+  /// After a profile edit, so the header shows the new name without signing in again.
+  void updateStudentName(String fullName) {
+    _studentName = fullName;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     final refreshToken = _refreshToken;
     await _clearSession();

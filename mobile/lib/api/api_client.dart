@@ -70,7 +70,9 @@ class ApiClient {
     final sentToken = accessToken;
     var response = await _exchange(method, path, body, sentToken);
 
-    if (response.statusCode == 401 && !path.startsWith('/api/auth/')) {
+    // change-password is the one /api/auth/ call made with a session that may need refreshing.
+    if (response.statusCode == 401 &&
+        (!path.startsWith('/api/auth/') || path == '/api/auth/change-password')) {
       final canRetry = accessToken != null && accessToken != sentToken
           ? true // another call already refreshed while this one was in flight
           : await (onUnauthorized?.call() ?? Future.value(false));
