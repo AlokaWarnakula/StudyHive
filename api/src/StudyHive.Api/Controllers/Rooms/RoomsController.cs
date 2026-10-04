@@ -505,9 +505,10 @@ public sealed class RoomsController(StudyHiveDbContext db, IAuditWriter audit) :
         var startsAt = from!.Value;
         var endsAt = to!.Value;
 
-        // AUDIT CW-12: staff also see who booked each slot and whether they came (Completed and
-        // NoShow bookings included); students get only Confirmed slots and no booking detail.
-        var staff = User.IsInRole(Roles.Librarian) || User.IsInRole(Roles.Admin) || User.IsInRole(Roles.StoreOfficer);
+        // AUDIT CW-12: Librarians and Admins (the room calendar's roles) also see who booked each
+        // slot and whether they came (Completed and NoShow bookings included). Everyone else gets
+        // only Confirmed slots and no booking detail.
+        var staff = User.IsInRole(Roles.Librarian) || User.IsInRole(Roles.Admin);
         var bookingSlots = await db.RoomBookings
             .AsNoTracking()
             .Where(b =>
@@ -766,9 +767,8 @@ public sealed record RoomDetailResponse(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<RoomEquipmentResponse> Equipment);
 
-/// <summary>A booking or maintenance period displayed on a room schedule.</summary>
 /// <summary>One schedule block. The booking detail (who, what, status, check-in) is filled for
-/// staff only (CW-12) and is null for students and for maintenance blocks.</summary>
+/// Librarians and Admins only (CW-12) and is null for students and for maintenance blocks.</summary>
 public sealed record RoomScheduleSlotResponse(
     Guid RoomId,
     string RoomName,

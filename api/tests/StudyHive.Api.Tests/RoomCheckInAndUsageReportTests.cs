@@ -269,7 +269,7 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
     }
 
     [Fact]
-    public async Task Staff_See_Who_Booked_Each_Slot_And_Check_In_State_But_Students_Do_Not()
+    public async Task Librarians_See_Who_Booked_Each_Slot_And_Check_In_State_But_Students_And_Store_Officers_Do_Not()
     {
         var (studentClient, profileId) = await CreateStudentClientAsync();
         var start = new DateTimeOffset(2035, 4, 2, 4, 30, 0, TimeSpan.Zero);
@@ -306,6 +306,17 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
         studentSlots[0].StudentName.Should().BeNull();
         studentSlots[0].BookingRequestId.Should().BeNull();
         studentSlots[0].CheckedInAt.Should().BeNull();
+
+        // The calendar is a Librarian/Admin screen, so a store officer gets the student view.
+        var officer = factory.CreateClient();
+        var (officerId, _, officerToken) = await TestSupport.CreateAndLoginStaffAsync(factory, officer, UserRole.StoreOfficer);
+        _userIds.Add(officerId);
+        officer.DefaultRequestHeaders.Authorization = new("Bearer", officerToken);
+        var officerSlots = await officer.GetFromJsonAsync<List<RoomScheduleSlotResponse>>(
+            $"/api/rooms/{kept.RoomId}/schedule?{range}", TestSupport.JsonOptions);
+        officerSlots.Should().ContainSingle();
+        officerSlots![0].StudentName.Should().BeNull();
+        officerSlots[0].Objective.Should().BeNull();
     }
 
     private sealed record SeededBooking(Guid BookingId, Guid RequestId, Guid RoomId, string RoomName, string QrCode);
