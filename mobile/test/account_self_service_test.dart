@@ -314,16 +314,16 @@ void main() {
 
   group('Payment status', () {
     test('paymentLine says Paid with date and receipt, or Unpaid with the total', () {
-      expect(paymentLine(BookingQuotationSummary.fromJson(_quote())),
-          'Unpaid — pay Rs. 450 at the library desk');
-      expect(
-          paymentLine(BookingQuotationSummary.fromJson(
-              _quote(paidAt: '2026-10-06T04:00:00Z', reference: 'R-77'))),
+      BookingRequest req(Map<String, dynamic>? quote, {String status = 'Approved'}) =>
+          BookingRequest.fromJson({..._request('r', 'x', _quote()), 'latestQuotation': quote, 'status': status});
+
+      expect(paymentLine(req(_quote())), 'Unpaid — pay Rs. 450 at the library desk');
+      expect(paymentLine(req(_quote(paidAt: '2026-10-06T04:00:00Z', reference: 'R-77'))),
           'Paid · Tue 6 Oct · receipt R-77');
-      expect(
-          paymentLine(BookingQuotationSummary.fromJson({..._quote(), 'status': 'Proposed'})),
-          isNull);
-      expect(paymentLine(null), isNull);
+      expect(paymentLine(req({..._quote(), 'status': 'Proposed'}, status: 'PendingApproval')), isNull);
+      // A cancelled booking keeps its Approved quotation, but there is nothing to pay.
+      expect(paymentLine(req(_quote(), status: 'Cancelled')), isNull);
+      expect(paymentLine(req(null, status: 'Draft')), isNull);
     });
 
     testWidgets('booking history shows both payment states', (tester) async {

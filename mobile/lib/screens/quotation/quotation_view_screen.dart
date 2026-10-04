@@ -19,9 +19,15 @@ String formatRs(double amount) =>
 
 /// PLAN.md 3.2: the desk payment of an approved quotation in the student's words —
 /// "Paid · Mon 6 Oct · receipt R-1" or "Unpaid — pay Rs. 450 at the library desk".
-/// Null when payment does not apply (not approved).
-String? paymentLine(BookingQuotationSummary? quotation) {
-  if (quotation == null || quotation.status != 'Approved') return null;
+/// Null when payment does not apply: not approved, or cancelled (a cancelled booking keeps its
+/// Approved quotation).
+String? paymentLine(BookingRequest request) {
+  final quotation = request.latestQuotation;
+  if (quotation == null ||
+      quotation.status != 'Approved' ||
+      (request.status != 'Approved' && request.status != 'Completed')) {
+    return null;
+  }
   final paidAt = quotation.paidAt;
   if (paidAt == null) {
     return 'Unpaid — pay ${formatRs(quotation.totalAmount)} at the library desk';

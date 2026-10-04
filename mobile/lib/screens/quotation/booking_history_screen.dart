@@ -168,8 +168,8 @@ class _LiveHistory extends StatelessWidget {
                 '${request.preferredDateFrom} · ${formatRs(request.latestQuotation!.totalAmount)}'
                 '${request.latestDecision?.comments != null ? ' · has a comment' : ''}',
               ),
-              if (paymentLine(request.latestQuotation) != null)
-                FNote(paymentLine(request.latestQuotation)!),
+              if (paymentLine(request) != null)
+                FNote(paymentLine(request)!),
             ],
           ),
       ],
