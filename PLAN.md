@@ -307,11 +307,20 @@ Covers **CW-01, CW-03, CW-05 (web), CW-06 (web), CW-07 (web), CW-08 (web), CW-12
 
 ### 3.9 End of Sat 4 Oct — check (both)
 
-- [ ] Every audit ID is either fixed (PR link) or explicitly cut (reason) in a table appended to
-      `AUDIT.md` ("Fix status").
-- [ ] Full suite green on `main`; CI green.
-- [ ] Re-run the audit scripts: C-01, C-02, C-03, C-04, C-05 (emulator, 31 min), CW-01, CW-03.
-- [ ] Rebuild the APK (release) and reinstall on the emulator.
+- [x] Every audit ID is either fixed (PR link) or explicitly cut (reason) in a table appended to
+      `AUDIT.md` ("Fix status"). Checked by script: all 42 IDs in the findings have a row.
+- [x] Full suite green on the top of the stack (`fix/mobile-quote-line` = main after #38–#40):
+      API 241, agent 87, web 109, mobile 84 (baseline 188 / 87 / 72 / 58); CI green on #38, #39, #40.
+- [x] Re-run the audit scripts (4 Oct, compose stack, fresh students):
+      C-01 cancel 204 → approve 409 `already-decided`, 0 room bookings ·
+      C-02 revise → PUT 200 → submit 202 → PendingApproval, quotation v2 ·
+      C-03 requests 1–3 PendingApproval, 4th submit 422 ·
+      C-04 approved booking for 14 Oct, check-in today → 422 `outside-check-in-window` ·
+      C-05 release APK, 2-minute tokens (`Jwt__AccessTokenMinutes=2`, same path as 31 min):
+      restored 10:51:52Z, booking detail opened 10:55:27Z → refresh token rotated, detail loaded ·
+      CW-01 duplicate QR → "A room with this QR code already exists." inside the dialog ·
+      CW-03 Sign out on Reports, Rooms, Equipment, Maintenance, Students, Workflows, Calendar, Room usage.
+- [x] Rebuild the APK (release, not debuggable) and reinstall on the emulator (Pixel_8_Pro).
 
 ### If we run out of time — cut in this order
 1. Phase C items, from the bottom of each list up.
