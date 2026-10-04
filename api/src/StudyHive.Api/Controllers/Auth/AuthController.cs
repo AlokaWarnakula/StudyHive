@@ -7,6 +7,7 @@ using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
 using StudyHive.Api.Security;
+using StudyHive.Api.Services;
 
 namespace StudyHive.Api.Controllers.Auth;
 
@@ -21,6 +22,7 @@ public sealed class AuthController(
     IPasswordHasher passwordHasher,
     IJwtTokenService jwtTokenService,
     IAuthorizationService authorizationService,
+    IAuditWriter audit,
     IOptions<JwtOptions> jwtOptions,
     IOptions<AuthCookieOptions> cookieOptions) : ControllerBase
 {
@@ -165,6 +167,44 @@ public sealed class AuthController(
         }
 
         return NoContent();
+    }
+
+    /// <summary>PLAN.md 3.1b: change your own password. Revokes every refresh token of the user
+    /// (signs out other devices), then issues a fresh pair exactly like login so this device stays
+    /// signed in.</summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    [EnableRateLimiting(RateLimitPolicies.AuthEndpoints)]
+    [ProducesResponseType(typeof(AuthTokenResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, [FromQuery] string? client, CancellationToken ct)
+    {
+        var user = await db.Users.FindAsync([User.GetUserId()], ct);
+        if (user is null || !user.IsActive) return Unauthorized();
+
+        if (!passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
+        {
+            ModelState.AddModelError(nameof(request.CurrentPassword), "Current password is incorrect.");
+            return ValidationProblem(ModelState);
+        }
+        if (request.NewPassword == request.CurrentPassword)
+        {
+            ModelState.AddModelError(nameof(request.NewPassword), "New password must be different from the current one.");
+            return ValidationProblem(ModelState);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        user.PasswordHash = passwordHasher.Hash(request.NewPassword);
+        user.UpdatedAt = now;
+        await db.RefreshTokens
+            .Where(t => t.UserId == user.Id && t.RevokedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+        audit.Write("PasswordChanged", "User", user.Id);
+
+        var result = await IssueTokensAsync(user, IsWeb(client), ct);
+        await transaction.CommitAsync(ct);
+        return result;
     }
 
     [HttpGet("me")]

@@ -378,6 +378,79 @@ public sealed class BookingRequestsController(
         return null;
     }
 
+    /// <summary>PLAN.md 3.1c: the student pays the Approved quotation's total at the library desk
+    /// (outside the system) and the Librarian records it here. 409 when there is no Approved
+    /// quotation or it is already paid. Payment does not gate check-in.</summary>
+    [HttpPost("{id:guid}/payment")]
+    [Authorize(Roles = Roles.Librarian)]
+    [ProducesResponseType(typeof(BookingQuotationSummaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RecordPayment(Guid id, RecordPaymentRequest request, CancellationToken ct)
+    {
+        var requestStatus = await db.BookingRequests.AsNoTracking()
+            .Where(r => r.Id == id).Select(r => (BookingRequestStatus?)r.Status).SingleOrDefaultAsync(ct);
+        if (requestStatus is null) return NotFound();
+        // Cancelling an approved booking leaves its quotation Approved, so check the request too.
+        if (requestStatus is not (BookingRequestStatus.Approved or BookingRequestStatus.Completed))
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Request has no approved quotation",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: $"Only an approved booking can be marked as paid; this request is '{requestStatus}'.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM quotations WHERE booking_request_id = {id} AND status = 'Approved' FOR UPDATE", ct);
+
+        var quotation = await db.Quotations
+            .SingleOrDefaultAsync(q => q.BookingRequestId == id && q.Status == QuotationStatus.Approved, ct);
+        if (quotation is null)
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Request has no approved quotation",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "Only an approved booking can be marked as paid.");
+        }
+        if (quotation.PaidAt is not null)
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Already paid",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: $"This booking was already marked as paid on {quotation.PaidAt:O}.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var reference = string.IsNullOrWhiteSpace(request.PaymentReference) ? null : request.PaymentReference.Trim();
+        quotation.PaidAt = now;
+        quotation.PaidBy = User.GetUserId();
+        quotation.PaymentReference = reference;
+        quotation.UpdatedAt = now;
+        audit.Write("PaymentRecorded", "Quotation", quotation.Id, new
+        {
+            bookingRequestId = id, amount = quotation.TotalAmount, currency = quotation.Currency, paymentReference = reference,
+        });
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        return Ok(new BookingQuotationSummaryResponse
+        {
+            Id = quotation.Id,
+            Status = quotation.Status,
+            Version = quotation.Version,
+            TotalAmount = quotation.TotalAmount,
+            Currency = quotation.Currency,
+            BudgetSnapshot = quotation.BudgetSnapshot,
+            WithinBudget = quotation.WithinBudget,
+            PaidAt = quotation.PaidAt,
+            PaymentReference = quotation.PaymentReference,
+        });
+    }
+
     [HttpPost("{id:guid}/submit")]
     [Authorize(Policy = "StudentOnly")]
     [EnableRateLimiting(RateLimitPolicies.WorkflowSubmit)]
@@ -504,6 +577,8 @@ public sealed class BookingRequestsController(
                     Currency = q.Currency,
                     BudgetSnapshot = q.BudgetSnapshot,
                     WithinBudget = q.WithinBudget,
+                    PaidAt = q.PaidAt,
+                    PaymentReference = q.PaymentReference,
                 },
                 q.CreatedAt,
             })

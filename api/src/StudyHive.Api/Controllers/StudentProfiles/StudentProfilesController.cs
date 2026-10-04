@@ -71,6 +71,50 @@ public sealed class StudentProfilesController(
         return profile is null ? NotFound() : Ok(StudentProfileResponse.From(profile));
     }
 
+    /// <summary>PLAN.md 3.1a: a student edits their own name, student number, department and year
+    /// (this is how a registration <c>REG-…</c> number gets fixed). Limits, penalties, suspension
+    /// and active state stay Admin-only via <c>PUT /{id}</c>.</summary>
+    [HttpPut("me")]
+    [Authorize(Policy = "StudentOnly")]
+    [ProducesResponseType(typeof(StudentProfileResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateOwnProfile(UpdateOwnStudentProfileRequest request, CancellationToken ct)
+    {
+        var fullName = request.FullName.Trim();
+        var studentNumber = request.StudentNumber.Trim();
+        var department = request.Department.Trim();
+        if (fullName.Length == 0) ModelState.AddModelError(nameof(request.FullName), "Full name cannot be blank.");
+        if (studentNumber.Length == 0) ModelState.AddModelError(nameof(request.StudentNumber), "Student number cannot be blank.");
+        if (department.Length == 0) ModelState.AddModelError(nameof(request.Department), "Department cannot be blank.");
+        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+
+        var userId = User.GetUserId();
+        var profile = await db.StudentProfiles.Include(p => p.User).SingleOrDefaultAsync(p => p.UserId == userId, ct);
+        if (profile is null) return NotFound();
+
+        if (studentNumber != profile.StudentNumber &&
+            await db.StudentProfiles.AnyAsync(p => p.StudentNumber == studentNumber && p.Id != profile.Id, ct))
+        {
+            return Problem(
+                type: "https://studyhive.dev/errors/conflict",
+                title: "Student number already registered",
+                statusCode: StatusCodes.Status409Conflict,
+                detail: "This student number is already registered to another account.");
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        profile.User.FullName = fullName;
+        profile.User.UpdatedAt = now;
+        profile.StudentNumber = studentNumber;
+        profile.Department = department;
+        profile.YearOfStudy = request.YearOfStudy;
+        profile.UpdatedAt = now;
+
+        await db.SaveChangesAsync(ct);
+        return Ok(StudentProfileResponse.From(profile));
+    }
+
     [HttpGet]
     [Authorize(Roles = $"{Roles.Librarian},{Roles.Admin}")]
     [ProducesResponseType(typeof(PagedResult<StudentProfileResponse>), StatusCodes.Status200OK)]

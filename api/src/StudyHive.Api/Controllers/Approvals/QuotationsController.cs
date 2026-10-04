@@ -131,6 +131,8 @@ public sealed class QuotationsController(StudyHiveDbContext db) : ControllerBase
                 WithinBudget = q.WithinBudget,
                 Currency = q.Currency,
                 Status = q.Status,
+                PaidAt = q.PaidAt,
+                PaymentReference = q.PaymentReference,
                 CreatedAt = q.CreatedAt,
                 UpdatedAt = q.UpdatedAt,
                 LineItems = q.LineItems
@@ -188,6 +190,9 @@ public sealed class QuotationResponse
     public required bool WithinBudget { get; init; }
     public required string Currency { get; init; }
     public required QuotationStatus Status { get; init; }
+    /// <summary>PLAN.md 3.1c: when the student paid at the library desk; null while unpaid.</summary>
+    public DateTimeOffset? PaidAt { get; init; }
+    public string? PaymentReference { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
     public required IReadOnlyList<QuotationLineItemResponse> LineItems { get; init; }
