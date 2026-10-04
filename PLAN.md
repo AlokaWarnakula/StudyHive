@@ -132,7 +132,8 @@ desk (cash/card, outside the system); the Librarian records it.
 - [x] Remove the note "To change your password, ask at the library desk." from Profile; the login
       screen keeps "Forgot your password? Ask at the library desk."
 - [x] Widget tests for the two new screens and both payment states.
-- [ ] Rebuild the release APK with the live URL (section 6) and reinstall on the emulator / phone.
+- [x] Rebuild the release APK with the live URL (section 6) and reinstall on the emulator / phone.
+      (4 Oct, from #47; installed on the Pixel 8 Pro emulator, live session restored.)
 
 ### 3.3 Web — branch `feat/web-payment` (after 3.1 merges; parallel with 3.2)
 - [x] **Request detail (Librarian):** for an Approved/Completed request, a **"Mark as paid"** button
