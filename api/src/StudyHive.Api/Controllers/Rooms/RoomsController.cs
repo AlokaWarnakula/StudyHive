@@ -505,11 +505,16 @@ public sealed class RoomsController(StudyHiveDbContext db, IAuditWriter audit) :
         var startsAt = from!.Value;
         var endsAt = to!.Value;
 
+        // AUDIT CW-12: Librarians and Admins (the room calendar's roles) also see who booked each
+        // slot and whether they came (Completed and NoShow bookings included). Everyone else gets
+        // only Confirmed slots and no booking detail.
+        var staff = User.IsInRole(Roles.Librarian) || User.IsInRole(Roles.Admin);
         var bookingSlots = await db.RoomBookings
             .AsNoTracking()
             .Where(b =>
                 b.RoomId == id &&
-                b.Status == RoomBookingStatus.Confirmed &&
+                (b.Status == RoomBookingStatus.Confirmed ||
+                 (staff && (b.Status == RoomBookingStatus.Completed || b.Status == RoomBookingStatus.NoShow))) &&
                 b.StartsAt < endsAt &&
                 b.EndsAt > startsAt)
             .Select(b => new RoomScheduleSlotResponse(
@@ -517,7 +522,12 @@ public sealed class RoomsController(StudyHiveDbContext db, IAuditWriter audit) :
                 roomName,
                 b.StartsAt,
                 b.EndsAt,
-                "Booked"))
+                "Booked",
+                staff ? b.BookingRequestId : null,
+                staff ? b.BookingRequest.Objective : null,
+                staff ? b.BookingRequest.Student.User.FullName : null,
+                staff ? b.Status.ToString() : null,
+                staff ? b.CheckedInAt : null))
             .ToListAsync(ct);
 
         var maintenanceSlots = await db.MaintenanceWindows
@@ -531,7 +541,8 @@ public sealed class RoomsController(StudyHiveDbContext db, IAuditWriter audit) :
                 roomName,
                 w.StartsAt,
                 w.EndsAt,
-                "Maintenance"))
+                "Maintenance",
+                null, null, null, null, null))
             .ToListAsync(ct);
 
         return Ok(bookingSlots
@@ -756,10 +767,16 @@ public sealed record RoomDetailResponse(
     DateTimeOffset UpdatedAt,
     IReadOnlyList<RoomEquipmentResponse> Equipment);
 
-/// <summary>A booking or maintenance period displayed on a room schedule.</summary>
+/// <summary>One schedule block. The booking detail (who, what, status, check-in) is filled for
+/// Librarians and Admins only (CW-12) and is null for students and for maintenance blocks.</summary>
 public sealed record RoomScheduleSlotResponse(
     Guid RoomId,
     string RoomName,
     DateTimeOffset StartsAt,
     DateTimeOffset EndsAt,
-    string Kind);
+    string Kind,
+    Guid? BookingRequestId = null,
+    string? Objective = null,
+    string? StudentName = null,
+    string? BookingStatus = null,
+    DateTimeOffset? CheckedInAt = null);
