@@ -1,0 +1,30 @@
+/// Times the library works in. Asia/Colombo is a fixed UTC+05:30 with no daylight saving, so a
+/// fixed offset is exact and does not depend on the phone's own time zone (AUDIT C-14).
+const colomboOffset = Duration(hours: 5, minutes: 30);
+
+const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// The instant as a wall-clock DateTime in Colombo (its fields read as Colombo time).
+DateTime toColombo(DateTime instant) => instant.toUtc().add(colomboOffset);
+
+String _two(int value) => value.toString().padLeft(2, '0');
+
+/// "14:05"
+String colomboHhmm(DateTime instant) {
+  final c = toColombo(instant);
+  return '${_two(c.hour)}:${_two(c.minute)}';
+}
+
+/// "Mon 6 Oct"
+String colomboDay(DateTime instant) {
+  final c = toColombo(instant);
+  return '${_weekdays[c.weekday - 1]} ${c.day} ${_months[c.month - 1]}';
+}
+
+/// "Mon 6 Oct · 14:00–16:00"
+String colomboSlot(DateTime startsAt, DateTime endsAt) =>
+    '${colomboDay(startsAt)} · ${colomboHhmm(startsAt)}–${colomboHhmm(endsAt)}';

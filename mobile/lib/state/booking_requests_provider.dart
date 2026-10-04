@@ -34,37 +34,19 @@ class BookingRequestsProvider extends ChangeNotifier {
     }
   }
 
-  /// Creates a Draft request, then immediately submits it to trigger the AI workflow — the mobile
-  /// create form has no separate "save draft" step (DOCS Flutter pages: a single Create form).
-  Future<BookingRequest> createAndSubmit({
-    required String objective,
-    required int groupSize,
-    required String preferredDateFrom,
-    required String preferredDateTo,
-    required String preferredTimeFrom,
-    required String preferredTimeTo,
-    required int sessionsRequired,
-    required int sessionDurationMinutes,
-    required double budget,
-    List<BookingRequestItem> items = const [],
-    String? notes,
-  }) async {
-    final created = await _api.create(
-      objective: objective,
-      groupSize: groupSize,
-      preferredDateFrom: preferredDateFrom,
-      preferredDateTo: preferredDateTo,
-      preferredTimeFrom: preferredTimeFrom,
-      preferredTimeTo: preferredTimeTo,
-      sessionsRequired: sessionsRequired,
-      sessionDurationMinutes: sessionDurationMinutes,
-      budget: budget,
-      items: items,
-      notes: notes,
-    );
-    await _api.submit(created.id);
+  /// Creates a Draft (no submit yet). AUDIT C-11: the create screen keeps the returned id, so a
+  /// submit that fails can be retried on the same draft instead of leaving an orphan behind.
+  Future<BookingRequest> createDraft(BookingRequestFields fields) => _api.createDraft(fields);
+
+  /// Saves edits to a Draft, or to a RevisionRequested request (which becomes a Draft again, C-02).
+  Future<BookingRequest> updateDraft(String requestId, BookingRequestFields fields) =>
+      _api.update(requestId, fields);
+
+  /// Sends a Draft to the agents, then reloads the list.
+  Future<String> submit(String requestId) async {
+    final workflowId = await _api.submit(requestId);
     await refresh();
-    return created;
+    return workflowId;
   }
 
   Future<void> cancel(String requestId) async {

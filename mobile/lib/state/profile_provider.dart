@@ -11,11 +11,15 @@ class ProfileProvider extends ChangeNotifier {
   ProfileProvider(this._api);
 
   StudentProfile? _profile;
+  Eligibility? _eligibility;
   bool _loading = false;
   String? _error;
   bool _loaded = false;
 
   StudentProfile? get profile => _profile;
+
+  /// The server's weekly count and verdict (AUDIT C-16); null until loaded or if it failed.
+  Eligibility? get eligibility => _eligibility;
   bool get loading => _loading;
   String? get error => _error;
   bool get loaded => _loaded;
@@ -27,6 +31,14 @@ class ProfileProvider extends ChangeNotifier {
     try {
       _profile = await _api.getMine();
       _loaded = true;
+      final profile = _profile;
+      if (profile != null) {
+        try {
+          _eligibility = await _api.eligibility(profile.id);
+        } catch (_) {
+          _eligibility = null; // the allowance tile falls back to the profile's limit
+        }
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -48,6 +60,7 @@ class ProfileProvider extends ChangeNotifier {
 
   void reset() {
     _profile = null;
+    _eligibility = null;
     _loaded = false;
     _error = null;
     notifyListeners();

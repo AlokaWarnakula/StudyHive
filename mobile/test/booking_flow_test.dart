@@ -236,4 +236,45 @@ void main() {
 
     expect(find.text('Group study session'), findsOneWidget);
   });
+
+  testWidgets('switching tabs reloads the bookings (C-08)', (tester) async {
+    var listCalls = 0;
+    final mockClient = MockClient((request) async {
+      if (request.url.path == '/api/auth/login') {
+        return _json({
+          'accessToken': 'access-token',
+          'accessTokenExpiresAt': '2026-01-01T00:00:00Z',
+          'refreshToken': 'refresh-token',
+          'refreshTokenExpiresAt': '2026-02-01T00:00:00Z',
+          'user': {
+            'id': '11111111-1111-1111-1111-111111111111',
+            'email': 'student@studyhive.test',
+            'fullName': 'Test Student',
+            'role': 'Student',
+            'isActive': true,
+            'createdAt': '2026-01-01T00:00:00Z',
+          },
+        });
+      }
+      if (request.url.path == '/api/booking-requests' && request.method == 'GET') {
+        listCalls++;
+        return _json({'items': [], 'page': 1, 'pageSize': 100, 'totalItems': 0, 'totalPages': 1});
+      }
+      if (request.url.path == '/api/student-profiles/me') return _json(_profileJson);
+      if (request.url.path == '/api/student-profiles/profile-1/eligibility') {
+        return _json({'eligible': true, 'reasons': [], 'usedThisWeek': 2, 'maxBookingsPerWeek': 3});
+      }
+      return _json({'items': [], 'page': 1, 'pageSize': 20, 'totalItems': 0, 'totalPages': 0});
+    });
+
+    final auth = await _signedInAuthProvider(mockClient);
+    await _pumpApp(tester, auth);
+    expect(find.text('2 of 3 used'), findsOneWidget, reason: 'C-16: the server count, not a local one');
+
+    final before = listCalls;
+    await tapAndSettle(tester, find.text('Bookings'));
+    await tapAndSettle(tester, find.text('Home'));
+
+    expect(listCalls, greaterThanOrEqualTo(before + 2));
+  });
 }

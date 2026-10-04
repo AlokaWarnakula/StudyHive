@@ -58,19 +58,8 @@ class _ProfileView extends StatelessWidget {
     final profile = context.watch<ProfileProvider>().profile!;
     final auth = context.watch<AuthProvider>();
     final requests = context.watch<BookingRequestsProvider>().requests;
-    final used =
-        requests
-            .where(
-              (r) =>
-                  !{
-                    'Draft',
-                    'Rejected',
-                    'Completed',
-                    'Cancelled',
-                    'Failed',
-                  }.contains(r.status),
-            )
-            .length;
+    // C-16: the server's weekly count, the same one that decides eligibility.
+    final eligibility = context.watch<ProfileProvider>().eligibility;
     // The latest quotation of each own request (GET /api/booking-requests), approved ones only.
     final approvedSpend = requests
         .where((r) => r.latestQuotation?.status == 'Approved')
@@ -109,7 +98,12 @@ class _ProfileView extends StatelessWidget {
                 profile.isActive ? 'Active' : 'Inactive',
               ),
             ),
-            Kv('Bookings this week', '$used of ${profile.maxBookingsPerWeek}'),
+            Kv(
+              'Bookings this week',
+              eligibility == null
+                  ? 'Limit ${profile.maxBookingsPerWeek}'
+                  : '${eligibility.usedThisWeek} of ${eligibility.maxBookingsPerWeek}',
+            ),
             Kv(
               'Outstanding penalties',
               profile.penaltyPoints == 0
@@ -146,13 +140,12 @@ class _ProfileView extends StatelessWidget {
                     ),
                   ),
             ),
-            const SizedBox(height: 2),
-            const _SettingRow(label: 'Notifications'),
-            const SizedBox(height: 2),
-            const _SettingRow(label: 'Change password'),
-            const SizedBox(height: 2),
-            const _SettingRow(label: 'Help'),
           ],
+        ),
+        // D4/D5: email is the notification channel and there is no password reset in this
+        // release, so those rows are gone rather than doing nothing.
+        const FNote(
+          'Decisions arrive by email. To change your password, ask at the library desk.',
         ),
         SecondaryButton(
           'Sign out',

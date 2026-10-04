@@ -9,6 +9,9 @@ import '../../widgets/studyhive_ui.dart';
 import '../create_request_screen.dart';
 
 /// M-11 "Free times" — live daily schedule with unavailable periods disabled.
+///
+/// AUDIT C-09: "Use <slot>" opens the request form on that day and time with this room as the
+/// preferred room; slots that have already started today are shown as Past and cannot be picked.
 class RoomScheduleScreen extends StatefulWidget {
   final RoomDetail? room;
   final bool previewEnabled;
@@ -88,6 +91,7 @@ class _RoomScheduleScreenState extends State<RoomScheduleScreen> {
                 for (var i = 0; i < rows.length; i++) ...[
                   if (i > 0) const SizedBox(height: 8),
                   _SlotRow(
+                      key: ValueKey('slot:$i'),
                       label: rows[i].label,
                       status: i == _selectedSlot ? 'Your pick' : rows[i].status,
                       picked: i == _selectedSlot,
@@ -103,8 +107,16 @@ class _RoomScheduleScreenState extends State<RoomScheduleScreen> {
                     : 'Use ${rows[_selectedSlot!].label}',
                 onPressed: _selectedSlot == null
                     ? null
-                    : () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const CreateRequestScreen()))),
+                    : () {
+                        final row = rows[_selectedSlot!];
+                        Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => CreateRequestScreen(
+                                  initialDate: DateUtils.dateOnly(row.start),
+                                  initialFrom: TimeOfDay.fromDateTime(row.start),
+                                  initialTo: TimeOfDay.fromDateTime(row.end),
+                                  roomName: room.name,
+                                )));
+                      }),
           ]));
     });
   }
@@ -166,10 +178,15 @@ class _RoomScheduleScreenState extends State<RoomScheduleScreen> {
   }
 }
 
-List<_ScheduleRow> _rowsFor(DateTime day, List<RoomScheduleSlot> busy) {
+List<_ScheduleRow> _rowsFor(DateTime day, List<RoomScheduleSlot> busy,
+    {DateTime? now}) {
+  final current = now ?? DateTime.now();
   return List.generate(6, (index) {
     final start = DateTime(day.year, day.month, day.day, 8 + index * 2);
     final end = start.add(const Duration(hours: 2));
+    if (start.isBefore(current)) {
+      return _ScheduleRow('${_time(start)} – ${_time(end)}', 'Past', start, end);
+    }
     final conflict = busy.cast<RoomScheduleSlot?>().firstWhere((slot) {
       if (slot == null) return false;
       final busyStart = DateTime.parse(slot.startsAt).toLocal();
@@ -177,7 +194,7 @@ List<_ScheduleRow> _rowsFor(DateTime day, List<RoomScheduleSlot> busy) {
       return busyStart.isBefore(end) && busyEnd.isAfter(start);
     }, orElse: () => null);
     return _ScheduleRow(
-        '${_time(start)} – ${_time(end)}', conflict?.kind ?? 'Free');
+        '${_time(start)} – ${_time(end)}', conflict?.kind ?? 'Free', start, end);
   });
 }
 
@@ -195,7 +212,9 @@ String _time(DateTime value) {
 class _ScheduleRow {
   final String label;
   final String status;
-  const _ScheduleRow(this.label, this.status);
+  final DateTime start;
+  final DateTime end;
+  const _ScheduleRow(this.label, this.status, this.start, this.end);
 }
 
 class _SlotRow extends StatelessWidget {
@@ -205,7 +224,8 @@ class _SlotRow extends StatelessWidget {
   final bool disabled;
   final VoidCallback? onTap;
   const _SlotRow(
-      {required this.label,
+      {super.key,
+      required this.label,
       required this.status,
       required this.picked,
       required this.disabled,

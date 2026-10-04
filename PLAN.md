@@ -227,7 +227,7 @@ Covers **CW-04, CW-05 (API part), CW-06 (API part), CW-07 (report), C-15 (hours)
   overlap 409 / force 201 + emails; report released count; hour bucket for a 10:00 Colombo booking
   = 10; student list returns name/email and suspended flag.
 
-#### B2. Mobile must-fix — Claude, branch `fix/mobile-ux`
+#### B2. Mobile must-fix — Claude, branch `fix/mobile-ux` — ✅ [PR #35](https://github.com/ItsAloka/StudyHive/pull/35)
 Covers **C-06 (UI), C-07 (UI), C-08, C-09, C-11, C-13, C-14, C-16, C-02 (UI)**.
 
 - **Booking state from `roomBookings` (C-06, C-14).** Detail and list show the **assigned room and

@@ -99,7 +99,8 @@ class ShTag extends StatelessWidget {
         s == 'approved' ||
         s == 'active' ||
         s == 'working' ||
-        s == 'checkedin') {
+        s == 'checkedin' ||
+        s == 'checked in') {
       return TagTone.accent;
     }
     if (s == 'waiting' ||

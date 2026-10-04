@@ -6,6 +6,7 @@ import '../state/auth_provider.dart';
 import '../state/booking_requests_provider.dart';
 import '../state/profile_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/colombo_time.dart';
 import '../widgets/studyhive_ui.dart';
 import 'booking_detail_screen.dart';
 import 'create_request_screen.dart';
@@ -16,6 +17,10 @@ import 'track_screen.dart';
 
 /// The four-tab shell. Each tab draws its own .mtop bar; the .mnav strip is flat
 /// with a hairline top border, not Material's pill-indicator NavigationBar.
+///
+/// AUDIT C-08: the tabs live in an IndexedStack, so they are built once; the shell reloads the
+/// bookings and the profile when a tab is opened, when the app comes back to the foreground, and
+/// when a screen pushed from Home returns.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,12 +28,43 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _index = 0;
 
-  void _openBookingFlow() {
-    Navigator.of(context)
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    await Future.wait([
+      context.read<BookingRequestsProvider>().refresh(),
+      context.read<ProfileProvider>().refresh(),
+    ]);
+  }
+
+  void _selectTab(int index) {
+    setState(() => _index = index);
+    if (index != 1) _refresh(); // Home, Bookings and Profile all show booking state
+  }
+
+  Future<void> _openBookingFlow() async {
+    await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const CreateRequestScreen()));
+    await _refresh();
   }
 
   PreferredSizeWidget _appBar() {
@@ -46,9 +82,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          // D4: email is the notification channel; the bell opens My bookings.
           IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {},
+            tooltip: 'My bookings',
+            onPressed: () => _selectTab(2),
             icon: const Icon(Icons.notifications_none, size: 22),
           ),
           const SizedBox(width: 6),
@@ -61,15 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
         2 => 'My bookings',
         _ => 'Profile',
       }),
-      actions: [
-        if (_index == 1)
-          IconButton(
-            tooltip: 'Search rooms',
-            onPressed: () {},
-            icon: const Icon(Icons.search, size: 22),
-          ),
-        const SizedBox(width: 6),
-      ],
+      actions: const [SizedBox(width: 6)],
     );
   }
 
@@ -78,7 +107,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       _HomeDashboard(
           onBookRoom: _openBookingFlow,
-          onOpenBookings: () => setState(() => _index = 2)),
+          onOpenBookings: () => _selectTab(2),
+          onReturn: _refresh),
       const BrowseRoomsScreen(embedded: true),
       const TrackScreen(),
       const ProfileScreen(),
@@ -89,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(index: _index, children: screens),
       bottomNavigationBar: BottomNav(
         index: _index,
-        onChanged: (i) => setState(() => _index = i),
+        onChanged: _selectTab,
       ),
     );
   }
@@ -100,9 +130,12 @@ class _HomeScreenState extends State<HomeScreen> {
 class _HomeDashboard extends StatefulWidget {
   final VoidCallback onBookRoom;
   final VoidCallback onOpenBookings;
+  final Future<void> Function() onReturn;
 
   const _HomeDashboard(
-      {required this.onBookRoom, required this.onOpenBookings});
+      {required this.onBookRoom,
+      required this.onOpenBookings,
+      required this.onReturn});
 
   @override
   State<_HomeDashboard> createState() => _HomeDashboardState();
@@ -121,20 +154,20 @@ class _HomeDashboardState extends State<_HomeDashboard> {
   @override
   Widget build(BuildContext context) {
     final bookings = context.watch<BookingRequestsProvider>();
-    final profile = context.watch<ProfileProvider>().profile;
+    final profileState = context.watch<ProfileProvider>();
+    final profile = profileState.profile;
+    final eligibility = profileState.eligibility;
     final requests = bookings.requests;
-    final next = _firstMatching(requests, const {'Approved'});
+    final next = _nextBooking(requests);
     final waiting = _firstMatching(requests, const {
       'Submitted',
       'Processing',
       'PendingApproval',
       'RevisionRequested'
     });
-    final used = requests
-        .where((r) => !{'Draft', 'Rejected', 'Completed', 'Cancelled', 'Failed'}
-            .contains(r.status))
-        .length;
-    final limit = profile?.maxBookingsPerWeek ?? 3;
+    // C-16: the server's own count of this Colombo week's submissions, not a local guess.
+    final used = eligibility?.usedThisWeek;
+    final limit = eligibility?.maxBookingsPerWeek ?? profile?.maxBookingsPerWeek ?? 3;
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -170,29 +203,36 @@ class _HomeDashboardState extends State<_HomeDashboard> {
               children: [
                 const Lbl('Next booking'),
                 Big(next.objective),
-                Kv(_dayLabel(next.preferredDateFrom),
-                    _timeRange(next.preferredTimeFrom, next.preferredTimeTo)),
+                if (next.slot case final slot?)
+                  Kv('${colomboDay(slot.startsAt)} · ${slot.roomName}',
+                      '${colomboHhmm(slot.startsAt)} – ${colomboHhmm(slot.endsAt)}')
+                else
+                  Kv(_dayLabel(next.preferredDateFrom),
+                      _timeRange(next.preferredTimeFrom, next.preferredTimeTo)),
                 Row(
                   children: [
-                    ShTag.forStatus(next.status),
+                    ShTag.forStatus(
+                        next.checkedInAt != null ? 'Checked in' : next.status),
                     const SizedBox(width: 8),
                     FNote('Group of ${next.groupSize}'),
                   ],
                 ),
-                SecondaryButton(
-                  'Check in with QR',
-                  icon: Icons.qr_code_2,
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                        builder: (_) => QrCheckInScreen(bookingId: next.id)),
+                if (next.canCheckIn)
+                  SecondaryButton(
+                    'Check in with QR',
+                    icon: Icons.qr_code_2,
+                    onPressed: () => _push(QrCheckInScreen(bookingId: next.id)),
                   ),
-                ),
               ],
             ),
           Tile(
             children: [
-              Kv('Bookings this week', '$used of $limit used'),
-              Meter(percent: limit == 0 ? 0 : used / limit),
+              Kv('Bookings this week',
+                  used == null ? 'Limit $limit' : '$used of $limit used'),
+              Meter(
+                  percent: limit == 0 || used == null
+                      ? 0
+                      : (used / limit).clamp(0, 1).toDouble()),
               const FNote('Limit resets every Monday.'),
             ],
           ),
@@ -204,10 +244,7 @@ class _HomeDashboardState extends State<_HomeDashboard> {
           else
             Tile(
               gap: 6,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                    builder: (_) => BookingDetailScreen(requestId: waiting.id)),
-              ),
+              onTap: () => _push(BookingDetailScreen(requestId: waiting.id)),
               children: [
                 Kv.both(
                   leading: Text(waiting.objective,
@@ -226,6 +263,25 @@ class _HomeDashboardState extends State<_HomeDashboard> {
         ],
       ),
     );
+  }
+
+  Future<void> _push(Widget screen) async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    await widget.onReturn(); // C-08
+  }
+
+  /// The soonest Approved booking that has not ended (C-06).
+  BookingRequest? _nextBooking(List<BookingRequest> requests) {
+    final upcoming = requests
+        .where((r) => r.status == 'Approved' && !r.hasEnded)
+        .toList()
+      ..sort((a, b) {
+        final aStart = a.slot?.startsAt;
+        final bStart = b.slot?.startsAt;
+        if (aStart == null || bStart == null) return aStart == null ? 1 : -1;
+        return aStart.compareTo(bStart);
+      });
+    return upcoming.isEmpty ? null : upcoming.first;
   }
 
   BookingRequest? _firstMatching(
