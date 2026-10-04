@@ -178,6 +178,33 @@ The full service and variable list is in [`PLAN.md`](PLAN.md) section 6. Before 
       `psql "$DATABASE_URL" -v staff_password='…' -f infra/seed/production-bootstrap.sql`, then
       `psql "$DATABASE_URL" -f infra/seed/demo-data.sql`.
 
+## Accounts and payment
+
+- **Accounts are active as soon as a student registers.** There is no admin approval of accounts; a
+  Librarian approves each *booking* instead (PLAN.md D5).
+- **Edit profile** (mobile → Profile → Edit profile): full name, student number, department and year
+  via `PUT /api/student-profiles/me`. A student number already in use is refused (409). Email, weekly
+  limit, penalty points and suspension stay staff-managed (`PUT /api/student-profiles/{id}`, Admin).
+- **Change password** (mobile → Profile → Change password): `POST /api/auth/change-password` checks
+  the current password, applies the same 8–100 character rule as registration, signs the account out
+  on every other device and keeps this one signed in. The endpoint accepts any role; only the mobile
+  app has a screen for it.
+- **Payment is manual, at the library desk** (PLAN.md D6). Every approved booking has a quotation
+  total in LKR. The student pays it at the desk, and the Librarian clicks **Mark as paid** on the
+  request page (optional receipt number) → `POST /api/booking-requests/{id}/payment`. The requests
+  list has a Payment column, and the student's booking and history show *Paid · date · receipt* or
+  *Unpaid — pay Rs X at the library desk*. Payment does not block check-in. A cancelled booking
+  cannot be marked paid.
+
+### Out of scope (future work)
+
+- Online payment (card / gateway). The third-party integration requirement is met by Brevo email
+  and QR check-in.
+- "Forgot password" by email, and an Admin password reset for another user.
+- A password-change screen on the staff web dashboard (the API already allows it).
+- Profile pictures.
+- Full user and role management UI (PLAN.md D2).
+
 ## Relay build order
 
 Shared foundation (this scaffold) → **S1** Requests & Workflow + Planner agent → **S2** Rooms &
