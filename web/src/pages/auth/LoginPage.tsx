@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { login } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { useAuthStore, type StaffRole } from "../../store/authStore";
 import { Placeholder } from "../../components/ui";
+import { safeNextPath } from "../../routes/safeNextPath";
 
 const STAFF_ROLES: StaffRole[] = ["Librarian", "StoreOfficer", "Admin"];
 
@@ -23,7 +24,10 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const storeLogin = useAuthStore((s) => s.login);
+  // W-01: why the dashboard sent the user back here (the session could not be refreshed).
+  const signedOutReason = useAuthStore((s) => s.signedOutReason);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -42,11 +46,10 @@ export function LoginPage() {
       storeLogin(
         { id: tokens.user.id, name: tokens.user.fullName, email: tokens.user.email, role: tokens.user.role },
         tokens.accessToken,
-        tokens.refreshToken,
       );
-      // The dashboard is the one screen every staff role can reach, so it is a safe landing place
-      // for a Librarian, a StoreOfficer and an Admin alike.
-      navigate("/", { replace: true });
+      // Back to the page that asked for sign-in (CW-09), else the dashboard: the one screen every
+      // staff role can reach. Only in-app paths are accepted, so ?next= can't send anyone off-site.
+      navigate(safeNextPath(searchParams.get("next")), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -92,18 +95,9 @@ export function LoginPage() {
             />
           </div>
 
-          {/* The reference offers "keep me signed in", but the staff console deliberately holds its
-              tokens in memory only (see store/authStore.ts) — so the control is shown disabled with
-              the reason, rather than silently doing nothing. */}
-          <label className="radio">
-            <input type="checkbox" disabled />
-            <span className="dot" />
-            <span className="text-muted">Keep me signed in — off for staff, tokens are never stored</span>
-          </label>
-
-          {error && (
+          {(error ?? signedOutReason) && (
             <p role="alert" className="form-error">
-              {error}
+              {error ?? signedOutReason}
             </p>
           )}
 

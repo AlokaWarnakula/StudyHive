@@ -47,7 +47,6 @@ describe("LoginPage", () => {
         body: {
           accessToken: "access-token",
           accessTokenExpiresAt: "2026-01-01T00:00:00Z",
-          refreshToken: "refresh-token",
           refreshTokenExpiresAt: "2026-02-01T00:00:00Z",
           user: {
             id: "11111111-1111-1111-1111-111111111111",
@@ -80,7 +79,6 @@ describe("LoginPage", () => {
     mockFetchOnce(200, {
       accessToken: "access-token",
       accessTokenExpiresAt: "2026-01-01T00:00:00Z",
-      refreshToken: "refresh-token",
       refreshTokenExpiresAt: "2026-02-01T00:00:00Z",
       user: {
         id: "22222222-2222-2222-2222-222222222222",
