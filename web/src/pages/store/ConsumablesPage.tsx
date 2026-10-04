@@ -11,6 +11,7 @@ import {
   type Consumable,
   type PagedResult,
 } from "../../api/consumables";
+import { can } from "../../auth/permissions";
 import { useAuthStore } from "../../store/authStore";
 import { ConsumableFormDialog, StockTag } from "./shared";
 import { messageOf, money } from "./storeUtils";
@@ -96,22 +97,23 @@ export function ConsumablesPage() {
   const items = result?.items ?? [];
   const firstRow = result && result.totalItems > 0 ? (result.page - 1) * result.pageSize + 1 : 0;
   // The API lets StoreOfficer and Admin create, but only StoreOfficer edit.
-  const canEdit = role === "StoreOfficer";
+  const canEdit = can(role, "consumables.edit");
 
   return (
     <Screen
       title="Consumables"
       crumb={result ? `${result.totalItems} ${stockLevel === "all" ? "active items" : "shown"}` : undefined}
-      showUser={false}
       actions={
         <>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/consumables/low-stock")}>
-            Low stock
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => setDialog({ editing: null })}>
+          {can(role, "lowStock.view") && (
+            <button type="button" className="btn btn-secondary" onClick={() => navigate("/consumables/low-stock")}>
+              Low stock
+            </button>
+          )}
+          {can(role, "consumables.create") && <button type="button" className="btn btn-primary" onClick={() => setDialog({ editing: null })}>
             <Icon name="plus" size={16} />
             Add item
-          </button>
+          </button>}
         </>
       }
     >

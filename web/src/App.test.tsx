@@ -164,9 +164,11 @@ describe("Sidebar navigation", () => {
     renderAt("/");
     const nav = screen.getByRole("navigation", { name: "Main" });
 
-    for (const label of ["Requests", "Rooms", "Consumables", "Reports", "Audit log", "Users", "Settings"]) {
+    for (const label of ["Students", "Rooms", "Maintenance", "Consumables", "Reservations", "Suppliers", "Reports", "Audit log", "Users", "Settings"]) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
     }
+    // CW-05: GET /api/booking-requests is Librarian-only, so an Admin gets no Requests link either.
+    expect(within(nav).queryByRole("link", { name: "Requests" })).not.toBeInTheDocument();
     // The approvals and workflow APIs are Librarian-only, so an Admin gets no dead-end links to them.
     expect(within(nav).queryByRole("link", { name: "Approvals" })).not.toBeInTheDocument();
     expect(within(nav).queryByRole("link", { name: "Workflow runs" })).not.toBeInTheDocument();

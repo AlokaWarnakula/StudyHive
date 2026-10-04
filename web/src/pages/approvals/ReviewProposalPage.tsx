@@ -115,7 +115,6 @@ export function ReviewProposalPage() {
       crumb={item ? `Approvals / quotation version ${item.version}` : "Approvals"}
       onBack={() => navigate("/approvals")}
       actions={item && <Tag tone={item.status === "Pending" ? "neutral" : statusTone(item.status)}>{humanize(item.status)}</Tag>}
-      showUser={false}
     >
       {proposal.error && <p role="alert" className="form-error">{proposal.error}</p>}
       {proposal.loading && !data && <div className="state-view">Loading…</div>}

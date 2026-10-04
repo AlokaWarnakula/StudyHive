@@ -9,6 +9,7 @@ import {
   type PagedResult,
   type StudentProfile,
 } from "../../api/studentProfiles";
+import { can } from "../../auth/permissions";
 import { useAuthStore } from "../../store/authStore";
 
 const PAGE_SIZE = 20;
@@ -21,7 +22,7 @@ const PAGE_SIZE = 20;
  */
 export function StudentsPage() {
   const token = useAuthStore((s) => s.accessToken);
-  const isAdmin = useAuthStore((s) => s.user?.role) === "Admin";
+  const isAdmin = can(useAuthStore((s) => s.user?.role), "students.edit");
 
   const [result, setResult] = useState<PagedResult<StudentProfile> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +56,7 @@ export function StudentsPage() {
     };
   }, [token, page, search]);
 
-  async function handleSave(limit: number, active: boolean) {
+  async function handleSave(changes: StudentChanges) {
     if (!token || !selected) return;
     setSaving(true);
     setSaveMessage(null);
@@ -63,10 +64,10 @@ export function StudentsPage() {
       const updated = await updateStudentProfile(token, selected.id, {
         department: selected.department,
         yearOfStudy: selected.yearOfStudy,
-        maxBookingsPerWeek: limit,
-        penaltyPoints: selected.penaltyPoints,
-        suspendedUntil: selected.suspendedUntil,
-        isActive: active,
+        maxBookingsPerWeek: changes.limit,
+        penaltyPoints: changes.penaltyPoints,
+        suspendedUntil: changes.suspendedUntil,
+        isActive: changes.active,
       });
       setSelected(updated);
       setResult((r) => (r ? { ...r, items: r.items.map((i) => (i.id === updated.id ? updated : i)) } : r));
@@ -90,8 +91,8 @@ export function StudentsPage() {
               className="input"
               style={{ maxWidth: 250 }}
               type="search"
-              placeholder="Search student number or department"
-              aria-label="Search student number or department"
+              placeholder="Search name, email or student number"
+              aria-label="Search name, email or student number"
               value={search}
               onChange={(e) => {
                 setPage(1);
@@ -116,6 +117,8 @@ export function StudentsPage() {
                 <table className="table">
                   <thead>
                     <tr>
+                      <th>Name</th>
+                      <th>Email</th>
                       <th>Student number</th>
                       <th>Department</th>
                       <th>Year</th>
@@ -136,14 +139,16 @@ export function StudentsPage() {
                         style={selected?.id === p.id ? { background: "var(--color-accent-100)" } : undefined}
                       >
                         <td>
-                          <b>{p.studentNumber}</b>
+                          <b>{p.fullName}</b>
                         </td>
+                        <td>{p.email}</td>
+                        <td>{p.studentNumber}</td>
                         <td>{p.department}</td>
                         <td>{p.yearOfStudy}</td>
                         <td>{p.maxBookingsPerWeek}</td>
                         <td>{p.penaltyPoints}</td>
                         <td>
-                          {p.isActive ? <Tag tone="accent">Active</Tag> : <Tag tone="neutral">Suspended</Tag>}
+                          <StatusTag profile={p} />
                         </td>
                       </tr>
                     ))}
@@ -191,10 +196,12 @@ function StudentPanel({
   saving: boolean;
   message: string | null;
   onClose: () => void;
-  onSave: (limit: number, active: boolean) => void;
+  onSave: (changes: StudentChanges) => void;
 }) {
   const [limit, setLimit] = useState(String(profile.maxBookingsPerWeek));
   const [active, setActive] = useState(profile.isActive);
+  const [penaltyPoints, setPenaltyPoints] = useState(String(profile.penaltyPoints));
+  const [suspendedUntil, setSuspendedUntil] = useState(profile.suspendedUntil ?? "");
 
   return (
     <div className="tile" style={{ borderColor: "var(--color-accent)" }}>
@@ -208,8 +215,9 @@ function StudentPanel({
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
         <Placeholder width={52} height={52} />
         <div>
-          <b style={{ fontSize: 17 }}>{profile.studentNumber}</b>
-          <div className="fnote">{profile.department}</div>
+          <b style={{ fontSize: 17 }}>{profile.fullName}</b>
+          <div className="fnote">{profile.email}</div>
+          <div className="fnote">{profile.studentNumber}</div>
         </div>
       </div>
 
@@ -217,8 +225,7 @@ function StudentPanel({
       <KeyValue label="Department">{profile.department}</KeyValue>
       <KeyValue label="Year">{String(profile.yearOfStudy)}</KeyValue>
       <KeyValue label="Joined">{new Date(profile.createdAt).toLocaleDateString()}</KeyValue>
-      <KeyValue label="Penalties">{profile.penaltyPoints === 0 ? "None" : String(profile.penaltyPoints)}</KeyValue>
-      <KeyValue label="Suspended until">{profile.suspendedUntil ?? "—"}</KeyValue>
+      <KeyValue label="Status"><StatusTag profile={profile} /></KeyValue>
       <hr className="hr" />
 
       <Field label="Bookings allowed per week (admin only)">
@@ -230,16 +237,37 @@ function StudentPanel({
           onChange={(e) => setLimit(e.target.value)}
         />
       </Field>
-      <Field label="Account status">
+      <Field label="Penalty points (3 or more blocks booking)">
+        <input
+          className="input"
+          type="number"
+          min={0}
+          value={penaltyPoints}
+          disabled={!isAdmin}
+          aria-label="Penalty points"
+          onChange={(e) => setPenaltyPoints(e.target.value)}
+        />
+      </Field>
+      <Field label="Suspended until (leave empty for not suspended)">
+        <input
+          className="input"
+          type="date"
+          value={suspendedUntil}
+          disabled={!isAdmin}
+          aria-label="Suspended until"
+          onChange={(e) => setSuspendedUntil(e.target.value)}
+        />
+      </Field>
+      <Field label="Account">
         <select
           className="input"
-          value={active ? "Active" : "Suspended"}
+          value={active ? "Active" : "Inactive"}
           disabled={!isAdmin}
-          aria-label="Account status"
+          aria-label="Account"
           onChange={(e) => setActive(e.target.value === "Active")}
         >
           <option>Active</option>
-          <option>Suspended</option>
+          <option>Inactive</option>
         </select>
       </Field>
 
@@ -253,15 +281,36 @@ function StudentPanel({
         type="button"
         className="btn btn-primary btn-block"
         disabled={!isAdmin || saving}
-        onClick={() => onSave(Number(limit), active)}
+        onClick={() =>
+          onSave({
+            limit: Number(limit),
+            active,
+            penaltyPoints: Number(penaltyPoints),
+            suspendedUntil: suspendedUntil || null,
+          })
+        }
       >
         {saving ? "Saving…" : "Save changes"}
       </button>
       {!isAdmin && (
         <span className="fnote">
-          Only an Admin can change a student's weekly limit or account status (PUT /api/student-profiles/&#123;id&#125;).
+          Only an Admin can change a student's weekly limit, penalties, suspension or account.
         </span>
       )}
     </div>
   );
+}
+
+interface StudentChanges {
+  limit: number;
+  active: boolean;
+  penaltyPoints: number;
+  suspendedUntil: string | null;
+}
+
+/** CW-08: Inactive (account off), Suspended until a date (booking blocked), or Active. */
+function StatusTag({ profile }: { profile: StudentProfile }) {
+  if (!profile.isActive) return <Tag tone="neutral">Inactive</Tag>;
+  if (profile.isSuspended) return <Tag tone="outline">{`Suspended until ${profile.suspendedUntil}`}</Tag>;
+  return <Tag tone="accent">Active</Tag>;
 }

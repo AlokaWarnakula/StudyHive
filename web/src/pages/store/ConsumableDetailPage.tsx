@@ -5,12 +5,14 @@ import { Dialog, Field, KeyValue, Meter, Pagination, Tag, Tile } from "../../com
 import {
   getConsumable,
   listStockTransactions,
+  deactivateConsumable,
   stockIn,
   updateConsumable,
   type Consumable,
   type PagedResult,
   type StockTransaction,
 } from "../../api/consumables";
+import { can } from "../../auth/permissions";
 import { useAuthStore } from "../../store/authStore";
 import { ConsumableFormDialog, StockTag } from "./shared";
 import { messageOf, money, wholeNumber } from "./storeUtils";
@@ -45,6 +47,9 @@ export function ConsumableDetailPage() {
 
   const [stockInOpen, setStockInOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmActive, setConfirmActive] = useState(false);
+  const [activeError, setActiveError] = useState<string | null>(null);
+  const [changingActive, setChangingActive] = useState(false);
 
   useEffect(() => {
     if (!token || !id) return;
@@ -63,7 +68,7 @@ export function ConsumableDetailPage() {
   }, [token, id, reload]);
 
   useEffect(() => {
-    if (!token || !id) return;
+    if (!token || !id || !can(role, "consumables.ledger")) return;
     let cancelled = false;
     setLedgerError(null);
     listStockTransactions(token, { consumableId: id, page: ledgerPage, pageSize: LEDGER_PAGE_SIZE, sortBy: "createdAt", sortDir: "desc" })
@@ -76,7 +81,7 @@ export function ConsumableDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, id, ledgerPage, reload]);
+  }, [token, id, ledgerPage, reload, role]);
 
   function afterChange() {
     setLedgerPage(1);
@@ -84,7 +89,32 @@ export function ConsumableDetailPage() {
   }
 
   const back = () => navigate("/consumables");
-  const isStoreOfficer = role === "StoreOfficer";
+
+  /**
+   * CW-05: a consumable can be retired from the web. A StoreOfficer toggles it with PUT isActive
+   * (and can bring it back); an Admin deactivates with DELETE, which is the endpoint Admin may call.
+   */
+  async function setActive(next: boolean) {
+    if (!token || !item) return;
+    setChangingActive(true);
+    setActiveError(null);
+    try {
+      if (can(role, "consumables.edit")) {
+        await updateConsumable(token, item.id, {
+          name: item.name, description: item.description, unit: item.unit,
+          unitPrice: item.unitPrice, minStockLevel: item.minStockLevel, isActive: next,
+        });
+      } else {
+        await deactivateConsumable(token, item.id);
+      }
+      setConfirmActive(false);
+      afterChange();
+    } catch (err) {
+      setActiveError(messageOf(err, "The item could not be updated."));
+    } finally {
+      setChangingActive(false);
+    }
+  }
 
   if (!item) {
     return (
@@ -109,18 +139,24 @@ export function ConsumableDetailPage() {
       title={item.name}
       crumb="Consumables"
       onBack={back}
-      showUser={false}
       actions={
-        isStoreOfficer && (
-          <>
+        <>
+          {can(role, "consumables.deactivate") && (item.isActive || can(role, "consumables.edit")) && (
+            <button type="button" className="btn btn-ghost" onClick={() => { setActiveError(null); setConfirmActive(true); }}>
+              {item.isActive ? "Deactivate" : "Reactivate"}
+            </button>
+          )}
+          {can(role, "consumables.edit") && (
             <button type="button" className="btn btn-secondary" onClick={() => setEditOpen(true)}>
               Edit item
             </button>
+          )}
+          {can(role, "consumables.stockIn") && (
             <button type="button" className="btn btn-primary" onClick={() => setStockInOpen(true)}>
               Stock in
             </button>
-          </>
-        )
+          )}
+        </>
       }
     >
       <div className="split" style={{ gridTemplateColumns: "320px 1fr" }}>
@@ -209,6 +245,33 @@ export function ConsumableDetailPage() {
         />
       )}
 
+      {confirmActive && (
+        <Dialog
+          title={item.isActive ? `Deactivate ${item.name}?` : `Reactivate ${item.name}?`}
+          onClose={() => setConfirmActive(false)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setConfirmActive(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" disabled={changingActive} onClick={() => setActive(!item.isActive)}>
+                {item.isActive ? "Deactivate" : "Reactivate"}
+              </button>
+            </>
+          }
+        >
+          {activeError && (
+            <p role="alert" className="form-error">
+              {activeError}
+            </p>
+          )}
+          <p style={{ margin: 0 }}>
+            {item.isActive
+              ? "Students can no longer pick it for a request. Existing reservations are not affected."
+              : "Students can pick it for requests again."}
+          </p>
+        </Dialog>
+      )}
       {editOpen && token && (
         <ConsumableFormDialog
           initial={item}

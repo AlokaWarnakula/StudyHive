@@ -33,7 +33,6 @@ export function WorkflowExecutionPage() {
       crumb={run ? run.execution.objective : undefined}
       onBack={() => navigate("/workflows")}
       actions={run && <Tag tone={statusTone(run.execution.status)}>{humanize(run.execution.status)}</Tag>}
-      showUser={false}
     >
       {loaded.error && <p role="alert" className="form-error">{loaded.error}</p>}
       {loaded.loading && !run && <div className="state-view">Loading…</div>}

@@ -53,7 +53,6 @@ export function UsersPage() {
     <Screen
       title="Users"
       crumb={`${u.total} accounts`}
-      showUser={false}
       actions={
         <button type="button" className="btn btn-primary">
           <Icon name="plus" size={16} />

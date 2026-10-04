@@ -10,6 +10,7 @@ import {
   type Supplier,
   type SupplierWriteBody,
 } from "../../api/consumables";
+import { can } from "../../auth/permissions";
 import { useAuthStore } from "../../store/authStore";
 import { messageOf } from "./storeUtils";
 
@@ -22,6 +23,7 @@ const PAGE_SIZE = 20;
  */
 export function SuppliersPage() {
   const token = useAuthStore((s) => s.accessToken);
+  const role = useAuthStore((s) => s.user?.role);
 
   const [result, setResult] = useState<PagedResult<Supplier> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,12 +74,13 @@ export function SuppliersPage() {
     <Screen
       title="Suppliers"
       crumb={result ? `${result.totalItems} ${activeOnly ? "active" : "in total"}` : undefined}
-      showUser={false}
       actions={
-        <button type="button" className="btn btn-primary" onClick={() => setDialog({ editing: null })}>
-          <Icon name="plus" size={16} />
-          Add supplier
-        </button>
+        can(role, "suppliers.create") && (
+          <button type="button" className="btn btn-primary" onClick={() => setDialog({ editing: null })}>
+            <Icon name="plus" size={16} />
+            Add supplier
+          </button>
+        )
       }
     >
       <Toolbar>
@@ -149,9 +152,11 @@ export function SuppliersPage() {
                       <Tag tone={s.isActive ? "accent" : "neutral"}>{s.isActive ? "Active" : "Inactive"}</Tag>
                     </td>
                     <td>
-                      <button type="button" className="btn btn-ghost" onClick={() => setDialog({ editing: s })}>
-                        Edit
-                      </button>
+                      {can(role, "suppliers.edit") && (
+                        <button type="button" className="btn btn-ghost" onClick={() => setDialog({ editing: s })}>
+                          Edit
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

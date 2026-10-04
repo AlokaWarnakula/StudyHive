@@ -5,6 +5,7 @@ import { createRoom, listEquipment, listRooms, type EquipmentType, type PagedRes
 import { Screen } from "../../components/AppShell";
 import { Icon } from "../../components/Icon";
 import { Dialog, Field, Pagination, Tag, Toolbar } from "../../components/ui";
+import { can } from "../../auth/permissions";
 import { useAuthStore } from "../../store/authStore";
 
 const PAGE_SIZE = 20;
@@ -13,6 +14,7 @@ const emptyForm: RoomInput = { name: "", building: "", floor: 1, capacity: 1, ho
 /** W-13 · Live room list and add-room dialog. Owned by S2. */
 export function RoomsPage() {
   const token = useAuthStore((s) => s.accessToken);
+  const role = useAuthStore((s) => s.user?.role);
   const navigate = useNavigate();
   const [result, setResult] = useState<PagedResult<Room> | null>(null);
   const [search, setSearch] = useState("");
@@ -25,6 +27,8 @@ export function RoomsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  /** CW-01: a save error belongs inside the open dialog, not on the page behind it. */
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [form, setForm] = useState<RoomInput>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
@@ -65,11 +69,11 @@ export function RoomsPage() {
   async function save() {
     if (!token) return;
     if (!form.name.trim() || !form.building.trim() || !form.qrCode.trim() || form.capacity <= 0 || form.hourlyRate < 0) {
-      setError("Enter a room name, building and QR code; capacity must be above 0 and rate cannot be negative.");
+      setDialogError("Enter a room name, building and QR code; capacity must be above 0 and rate cannot be negative.");
       return;
     }
     setSaving(true);
-    setError(null);
+    setDialogError(null);
     try {
       await createRoom(token, form);
       setDialogOpen(false);
@@ -77,7 +81,7 @@ export function RoomsPage() {
       setPage(1);
       setReload((value) => value + 1);
     } catch (err) {
-      setError(messageOf(err, "Failed to create the room."));
+      setDialogError(messageOf(err, "Failed to create the room."));
     } finally {
       setSaving(false);
     }
@@ -88,8 +92,8 @@ export function RoomsPage() {
   const sortMark = (column: string) => sortBy === column ? (sortDir === "asc" ? "▲" : "▼") : "";
 
   return (
-    <Screen title="Rooms" crumb={result ? `${result.totalItems} rooms` : undefined} showUser={false}
-      actions={<button type="button" className="btn btn-primary" onClick={() => setDialogOpen(true)}><Icon name="plus" size={16} />Add room</button>}>
+    <Screen title="Rooms" crumb={result ? `${result.totalItems} rooms` : undefined}
+      actions={can(role, "rooms.create") && <button type="button" className="btn btn-primary" onClick={() => { setDialogError(null); setDialogOpen(true); }}><Icon name="plus" size={16} />Add room</button>}>
       <Toolbar>
         <input className="input" style={{ maxWidth: 280 }} type="search" placeholder="Search name or building"
           aria-label="Search name or building" value={search} onChange={(e) => { setPage(1); setSearch(e.target.value); }} />
@@ -125,7 +129,7 @@ export function RoomsPage() {
       {dialogOpen && <Dialog title="Add room" width={520} onClose={() => setDialogOpen(false)} actions={<>
         <button type="button" className="btn btn-secondary" onClick={() => setDialogOpen(false)}>Cancel</button>
         <button type="button" className="btn btn-primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save room"}</button>
-      </>}><div className="k2">
+      </>}>{dialogError && <p role="alert" className="form-error">{dialogError}</p>}<div className="k2">
         <RoomField label="Room name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
         <RoomField label="Building" value={form.building} onChange={(building) => setForm({ ...form, building })} />
         <RoomField label="Floor" type="number" value={String(form.floor)} onChange={(value) => setForm({ ...form, floor: Number(value) })} />

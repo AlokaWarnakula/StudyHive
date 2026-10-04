@@ -44,7 +44,6 @@ export function LowStockPage() {
       title="Low stock"
       crumb={items ? `${rows.length} items at or below their reorder level` : undefined}
       onBack={() => navigate("/consumables")}
-      showUser={false}
     >
       {error && (
         <p role="alert" className="form-error">

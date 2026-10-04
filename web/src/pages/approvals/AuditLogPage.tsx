@@ -73,7 +73,7 @@ export function AuditLogPage() {
   }
 
   return (
-    <Screen title="Audit log" crumb="Read-only record of every change" showUser={false}>
+    <Screen title="Audit log" crumb="Read-only record of every change">
       <Toolbar>
         <form
           style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}

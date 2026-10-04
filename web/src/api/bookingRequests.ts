@@ -35,8 +35,20 @@ export interface BookingRequest {
   status: BookingRequestStatus;
   items: BookingRequestItem[];
   latestWorkflowId: string | null;
+  /** The rooms booked for it once approved (empty before), with check-in state (CW-12). */
+  roomBookings?: RoomBookingSummary[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RoomBookingSummary {
+  id: string;
+  roomId: string;
+  roomName: string;
+  startsAt: string;
+  endsAt: string;
+  status: "Confirmed" | "Cancelled" | "Completed" | "NoShow";
+  checkedInAt: string | null;
 }
 
 export interface PagedResult<T> {

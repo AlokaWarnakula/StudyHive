@@ -6,12 +6,17 @@ export type { PagedResult } from "./bookingRequests";
 export interface StudentProfile {
   id: string;
   userId: string;
+  /** CW-08: who the profile belongs to. */
+  fullName: string;
+  email: string;
   studentNumber: string;
   department: string;
   yearOfStudy: number;
   maxBookingsPerWeek: number;
   penaltyPoints: number;
   suspendedUntil: string | null;
+  /** Suspended today, by the same rule eligibility uses. */
+  isSuspended: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +35,8 @@ export interface UpdateStudentProfileRequest {
 export interface Eligibility {
   eligible: boolean;
   reasons: string[];
+  usedThisWeek: number;
+  maxBookingsPerWeek: number;
 }
 
 export interface ListStudentProfilesParams {
