@@ -102,6 +102,9 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/mobile app/i));
     expect(useAuthStore.getState().user).toBeNull();
+    // The API already set the refresh cookie; the page revokes it instead of leaving a live session.
+    const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(urls.some((u) => u.includes("/api/auth/logout?client=web"))).toBe(true);
   });
 
   it("shows an error and does not navigate on invalid credentials", async () => {

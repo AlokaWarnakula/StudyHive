@@ -116,6 +116,23 @@ describe("apiFetch session refresh (W-01)", () => {
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 
+  it("revokes a non-staff refresh cookie instead of signing in with it", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        if (url.includes("/api/auth/refresh")) return json(200, { ...refreshed, user: { ...refreshed.user, role: "Student" } });
+        if (url.includes("/api/auth/logout")) return new Response(null, { status: 204 });
+        return json(401, { title: "Unauthorized" });
+      }),
+    );
+
+    await expect(apiFetch("/api/rooms/r1", { token: "access-1" })).rejects.toMatchObject({ status: 401 });
+    expect(calls.some((u) => u.includes("/api/auth/logout?client=web"))).toBe(true);
+    expect(useAuthStore.getState().user).toBeNull();
+  });
+
   it("never refreshes for the auth endpoints themselves", async () => {
     const api = fakeApi();
     vi.stubGlobal("fetch", vi.fn(async () => json(401, { title: "Invalid credentials" })));

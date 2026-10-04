@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { login } from "../../api/auth";
+import { login, logout } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { useAuthStore, type StaffRole } from "../../store/authStore";
 import { Placeholder } from "../../components/ui";
@@ -38,7 +38,9 @@ export function LoginPage() {
       const tokens = await login(email, password);
 
       if (!isStaffRole(tokens.user.role)) {
-        // This dashboard is staff-only (DOCS §01/02) — students use the Flutter app.
+        // This dashboard is staff-only (DOCS §01/02) — students use the Flutter app. The API has
+        // already set the refresh cookie, so revoke it rather than leave a live session behind.
+        await logout().catch(() => undefined);
         setError("This account can't sign in to the staff dashboard. Use the StudyHive mobile app instead.");
         return;
       }

@@ -160,6 +160,8 @@ async function doRefresh(): Promise<boolean> {
   const tokens = (await response.json()) as RefreshResponse;
   const user = toStaffUser(tokens.user);
   if (!user) {
+    // A non-staff cookie (e.g. a student who tried this page) is revoked, not rotated forever.
+    await send("/api/auth/logout?client=web", { method: "POST", body: {} }, null).catch(() => undefined);
     useAuthStore.getState().expire();
     return false;
   }
