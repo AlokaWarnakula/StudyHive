@@ -40,6 +40,16 @@ public sealed class LoginRequest
     public required string Password { get; init; }
 }
 
+/// <summary>Same password rules as registration for the new one.</summary>
+public sealed class ChangePasswordRequest
+{
+    [Required]
+    public required string CurrentPassword { get; init; }
+
+    [Required, MinLength(8), MaxLength(100)]
+    public required string NewPassword { get; init; }
+}
+
 /// <summary>
 /// Mobile sends the refresh token here. The web client (<c>?client=web</c>) sends <c>{}</c> and the
 /// token comes from the httpOnly cookie instead; the JSON body is still required, which keeps a

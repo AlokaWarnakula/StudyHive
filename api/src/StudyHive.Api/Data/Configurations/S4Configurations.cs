@@ -24,6 +24,12 @@ public class QuotationConfiguration : IEntityTypeConfiguration<Quotation>
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).HasDefaultValue(QuotationStatus.Draft);
         b.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
         b.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
+        b.Property(x => x.PaymentReference).HasMaxLength(60);
+
+        b.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(x => x.PaidBy)
+            .OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.BookingRequestId, x.Version }).IsUnique().HasDatabaseName("uq_quote_version");
         b.HasIndex(x => x.BookingRequestId)

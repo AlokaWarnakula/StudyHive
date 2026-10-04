@@ -18,6 +18,23 @@ public sealed class CreateStudentProfileRequest
     public int YearOfStudy { get; init; }
 }
 
+/// <summary>Student edits their own profile (PUT /me). Same limits as registration/onboarding;
+/// quota/penalty/active-state fields are deliberately absent.</summary>
+public sealed class UpdateOwnStudentProfileRequest
+{
+    [Required, MaxLength(150)]
+    public required string FullName { get; init; }
+
+    [Required, MaxLength(20)]
+    public required string StudentNumber { get; init; }
+
+    [Required, MaxLength(80)]
+    public required string Department { get; init; }
+
+    [Range(1, 5)]
+    public int YearOfStudy { get; init; }
+}
+
 /// <summary>Admin-only. The full set of fields a staff member can adjust after onboarding.</summary>
 public sealed class UpdateStudentProfileRequest
 {

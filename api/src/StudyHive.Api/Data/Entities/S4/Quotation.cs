@@ -21,6 +21,11 @@ public class Quotation
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    // Manual payment at the library desk (PLAN.md 3.1c): set once by the Librarian who took it.
+    public DateTimeOffset? PaidAt { get; set; }
+    public Guid? PaidBy { get; set; }
+    public string? PaymentReference { get; set; }
+
     public BookingRequest BookingRequest { get; set; } = null!;
     public ICollection<QuotationLineItem> LineItems { get; set; } = new List<QuotationLineItem>();
     public ICollection<ApprovalDecision> ApprovalDecisions { get; set; } = new List<ApprovalDecision>();

@@ -159,6 +159,16 @@ public sealed class BookingQuotationSummaryResponse
     public required string Currency { get; init; }
     public required decimal BudgetSnapshot { get; init; }
     public required bool WithinBudget { get; init; }
+    /// <summary>PLAN.md 3.1c: when the student paid at the library desk; null while unpaid.</summary>
+    public DateTimeOffset? PaidAt { get; init; }
+    public string? PaymentReference { get; init; }
+}
+
+/// <summary>Librarian records a desk payment; the receipt number is optional.</summary>
+public sealed class RecordPaymentRequest
+{
+    [MaxLength(60)]
+    public string? PaymentReference { get; init; }
 }
 
 /// <summary>A librarian's decision as the student sees it (S4): outcome, comments and when.</summary>
