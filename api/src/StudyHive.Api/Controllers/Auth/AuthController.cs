@@ -21,9 +21,14 @@ public sealed class AuthController(
     IPasswordHasher passwordHasher,
     IJwtTokenService jwtTokenService,
     IAuthorizationService authorizationService,
-    IOptions<JwtOptions> jwtOptions) : ControllerBase
+    IOptions<JwtOptions> jwtOptions,
+    IOptions<AuthCookieOptions> cookieOptions) : ControllerBase
 {
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
+    private readonly AuthCookieOptions _cookieOptions = cookieOptions.Value;
+
+    /// <summary>PLAN.md D1: <c>?client=web</c> switches login/refresh/logout to the refresh cookie.</summary>
+    public const string WebClient = "web";
 
     [HttpPost("register")]
     [AllowAnonymous]
@@ -86,7 +91,7 @@ public sealed class AuthController(
     [EnableRateLimiting(RateLimitPolicies.AuthEndpoints)]
     [ProducesResponseType(typeof(AuthTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Login(LoginRequest request, CancellationToken ct)
+    public async Task<IActionResult> Login(LoginRequest request, [FromQuery] string? client, CancellationToken ct)
     {
         var normalizedEmail = request.Email.Trim();
         var user = await db.Users.SingleOrDefaultAsync(u => u.Email == normalizedEmail, ct);
@@ -98,7 +103,7 @@ public sealed class AuthController(
             return InvalidCredentials();
         }
 
-        return await IssueTokensAsync(user, ct);
+        return await IssueTokensAsync(user, IsWeb(client), ct);
     }
 
     [HttpPost("refresh")]
@@ -106,9 +111,18 @@ public sealed class AuthController(
     [EnableRateLimiting(RateLimitPolicies.AuthEndpoints)]
     [ProducesResponseType(typeof(AuthTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Refresh(RefreshRequest request, CancellationToken ct)
+    public async Task<IActionResult> Refresh(RefreshRequest request, [FromQuery] string? client, CancellationToken ct)
     {
-        var tokenHash = TokenHasher.Sha256Hex(request.RefreshToken);
+        var web = IsWeb(client);
+        var presented = web ? Request.Cookies[_cookieOptions.Name] : request.RefreshToken;
+        if (!web && string.IsNullOrWhiteSpace(presented))
+        {
+            ModelState.AddModelError(nameof(request.RefreshToken), "The RefreshToken field is required.");
+            return ValidationProblem(ModelState);
+        }
+        if (string.IsNullOrWhiteSpace(presented)) return InvalidRefreshToken(web);
+
+        var tokenHash = TokenHasher.Sha256Hex(presented);
         var existing = await db.RefreshTokens
             .Include(t => t.User)
             .SingleOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
@@ -116,24 +130,30 @@ public sealed class AuthController(
         var now = DateTimeOffset.UtcNow;
         if (existing is null || existing.RevokedAt is not null || existing.ExpiresAt <= now || !existing.User.IsActive)
         {
-            return Problem(
-                type: "https://studyhive.dev/errors/unauthorized",
-                title: "Invalid refresh token",
-                statusCode: StatusCodes.Status401Unauthorized,
-                detail: "The refresh token is invalid, expired or has already been used.");
+            return InvalidRefreshToken(web);
         }
 
         // Rotate: revoke the presented token so it cannot be replayed, then issue a fresh pair.
         existing.RevokedAt = now;
-        return await IssueTokensAsync(existing.User, ct);
+        return await IssueTokensAsync(existing.User, web, ct);
     }
 
     [HttpPost("logout")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken ct)
+    public async Task<IActionResult> Logout(LogoutRequest request, [FromQuery] string? client, CancellationToken ct)
     {
-        var tokenHash = TokenHasher.Sha256Hex(request.RefreshToken);
+        var web = IsWeb(client);
+        var presented = web ? Request.Cookies[_cookieOptions.Name] : request.RefreshToken;
+        if (!web && string.IsNullOrWhiteSpace(presented))
+        {
+            ModelState.AddModelError(nameof(request.RefreshToken), "The RefreshToken field is required.");
+            return ValidationProblem(ModelState);
+        }
+        if (web) ClearRefreshCookie();
+        if (string.IsNullOrWhiteSpace(presented)) return NoContent();
+
+        var tokenHash = TokenHasher.Sha256Hex(presented);
         var existing = await db.RefreshTokens.SingleOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
 
         // Idempotent and silent either way — logging out an already-revoked or unknown token
@@ -212,7 +232,7 @@ public sealed class AuthController(
         return Ok(UserResponse.From(user));
     }
 
-    private async Task<IActionResult> IssueTokensAsync(User user, CancellationToken ct)
+    private async Task<IActionResult> IssueTokensAsync(User user, bool web, CancellationToken ct)
     {
         var accessToken = jwtTokenService.GenerateAccessToken(user);
 
@@ -227,14 +247,44 @@ public sealed class AuthController(
         });
         await db.SaveChangesAsync(ct);
 
+        if (web)
+        {
+            Response.Cookies.Append(_cookieOptions.Name, refreshTokenValue, RefreshCookie(refreshTokenExpiresAt));
+        }
+
         return Ok(new AuthTokenResponse
         {
             AccessToken = accessToken.Value,
             AccessTokenExpiresAt = accessToken.ExpiresAt,
-            RefreshToken = refreshTokenValue,
+            RefreshToken = web ? null : refreshTokenValue,
             RefreshTokenExpiresAt = refreshTokenExpiresAt,
             User = UserResponse.From(user),
         });
+    }
+
+    private static bool IsWeb(string? client) => string.Equals(client, WebClient, StringComparison.OrdinalIgnoreCase);
+
+    private CookieOptions RefreshCookie(DateTimeOffset? expires) => new()
+    {
+        HttpOnly = true,
+        Secure = _cookieOptions.Secure,
+        SameSite = _cookieOptions.SameSite,
+        Path = _cookieOptions.Path,
+        Expires = expires,
+        IsEssential = true,
+    };
+
+    private void ClearRefreshCookie() => Response.Cookies.Delete(_cookieOptions.Name, RefreshCookie(null));
+
+    /// <summary>A rejected web refresh also drops the cookie, so the browser stops sending a dead token.</summary>
+    private ObjectResult InvalidRefreshToken(bool web)
+    {
+        if (web) ClearRefreshCookie();
+        return Problem(
+            type: "https://studyhive.dev/errors/unauthorized",
+            title: "Invalid refresh token",
+            statusCode: StatusCodes.Status401Unauthorized,
+            detail: "The refresh token is invalid, expired or has already been used.");
     }
 
     private ObjectResult InvalidCredentials() => Problem(

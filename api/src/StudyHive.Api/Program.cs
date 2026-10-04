@@ -112,16 +112,23 @@ builder.Services.AddAuthorizationBuilder()
 builder.Services.AddSingleton<IAuthorizationHandler, ResourceOwnerAuthorizationHandler>();
 builder.Services.AddSingleton<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+builder.Services.Configure<AuthCookieOptions>(builder.Configuration.GetSection(AuthCookieOptions.SectionName));
 
 // ---- CORS for the React web client and local Flutter dev builds ----
 const string CorsPolicy = "StudyHiveClients";
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? new[] { "http://localhost:5173" };
 
+// AllowCredentials lets the web client send the refresh cookie (PLAN.md D1). It is only safe with
+// an explicit origin list, so a wildcard is refused at startup.
+if (allowedOrigins.Any(o => o.Contains('*')))
+{
+    throw new InvalidOperationException("Cors:AllowedOrigins must list exact origins; wildcards are not allowed with credentials.");
+}
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(CorsPolicy, policy =>
-        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
+        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials());
 });
 
 // ---- Rate limiting on login/refresh (Codex security review, P2: credential-stuffing/brute-force) ----

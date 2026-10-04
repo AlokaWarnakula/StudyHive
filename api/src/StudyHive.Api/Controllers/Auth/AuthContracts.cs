@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using StudyHive.Api.Data.Entities;
 
 namespace StudyHive.Api.Controllers.Auth;
@@ -39,23 +40,31 @@ public sealed class LoginRequest
     public required string Password { get; init; }
 }
 
+/// <summary>
+/// Mobile sends the refresh token here. The web client (<c>?client=web</c>) sends <c>{}</c> and the
+/// token comes from the httpOnly cookie instead; the JSON body is still required, which keeps a
+/// cross-site form post (no CORS preflight) from using the cookie.
+/// </summary>
 public sealed class RefreshRequest
 {
-    [Required]
-    public required string RefreshToken { get; init; }
+    public string? RefreshToken { get; init; }
 }
 
+/// <summary>Same shape and rules as <see cref="RefreshRequest"/>.</summary>
 public sealed class LogoutRequest
 {
-    [Required]
-    public required string RefreshToken { get; init; }
+    public string? RefreshToken { get; init; }
 }
 
 public sealed class AuthTokenResponse
 {
     public required string AccessToken { get; init; }
     public required DateTimeOffset AccessTokenExpiresAt { get; init; }
-    public required string RefreshToken { get; init; }
+
+    /// <summary>Left out for the web client, which gets it as an httpOnly cookie.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RefreshToken { get; init; }
+
     public required DateTimeOffset RefreshTokenExpiresAt { get; init; }
     public required UserResponse User { get; init; }
 }

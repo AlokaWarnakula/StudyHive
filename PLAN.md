@@ -176,6 +176,9 @@ Covers **W-01, web token refresh, CW-02**.
 - Implement **D1** (API cookie part is small: Claude adds the `client=web` cookie mode to
   `AuthController` login/refresh/logout in A2's branch or a tiny `fix/api-auth-cookie` branch first;
   CORS `AllowCredentials` for the configured origins only).
+  ✅ API part: [PR #31](https://github.com/ItsAloka/StudyHive/pull/31). `?client=web` sets the
+  `studyhive_refresh` cookie (httpOnly, Secure, Path=/api/auth, SameSite Lax locally / None in
+  production) and leaves the token out of the body; refresh/logout send `{}` with credentials.
 - `apiFetch`: on 401 → one shared refresh → retry once; refresh failure → sign-out to `/login` with
   "Session expired". On app start → try refresh, so a reload keeps the session. Keep the deep link
   (`/login?next=/rooms`) and return there after sign-in (part of CW-09).
