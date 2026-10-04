@@ -71,8 +71,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Center(
-                        child: Ph(label: 'logo', width: 56, height: 56)),
+                    Center(
+                        child: Image.asset('assets/brand/logo.png',
+                            width: 56,
+                            height: 56,
+                            semanticLabel: 'StudyHive logo')),
                     const SizedBox(height: 16),
                     Text('StudyHive',
                         textAlign: TextAlign.center,

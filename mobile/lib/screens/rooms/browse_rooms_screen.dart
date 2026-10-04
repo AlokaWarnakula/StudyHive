@@ -204,6 +204,9 @@ class _RoomRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final availability = preview
+        ? room.availabilityLabel
+        : context.watch<RoomsProvider>().availabilityLabelFor(room);
     return Tile.row(
       onTap:
           () => Navigator.of(context).push(
@@ -220,7 +223,6 @@ class _RoomRow extends StatelessWidget {
             ),
           ),
       children: [
-        const Ph(label: 'photo', width: 76, height: 76),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,8 +238,10 @@ class _RoomRow extends StatelessWidget {
               FNote('${room.building} · ${room.capacity} seats'),
               const SizedBox(height: 4),
               FNote('Rs. ${room.hourlyRate.toStringAsFixed(0)} per hour'),
-              const SizedBox(height: 6),
-              ShTag.forStatus(room.availabilityLabel),
+              if (availability != null) ...[
+                const SizedBox(height: 6),
+                ShTag.forStatus(availability),
+              ],
             ],
           ),
         ),

@@ -14,6 +14,7 @@ class RoomsProvider extends ChangeNotifier {
 
   List<RoomListItem> _rooms = [];
   List<RoomEquipmentType> _equipmentTypes = [];
+  Set<String> _freeNowIds = {};
   RoomDetail? _selected;
   List<RoomScheduleSlot> _schedule = [];
   bool _loading = false;
@@ -26,6 +27,14 @@ class RoomsProvider extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
 
+  /// AUDIT C-17: "Free now" only for a room the availability search says is free for the next
+  /// hour. Unknown (search failed or not run) means no tag, never an invented one.
+  bool isFreeNow(String roomId) => _freeNowIds.contains(roomId);
+
+  /// The tag a room shows: Inactive, Free now, or none.
+  String? availabilityLabelFor(RoomListItem room) =>
+      room.availabilityLabel ?? (isFreeNow(room.id) ? 'Free now' : null);
+
   /// M-09. Filter chips only — the reference deliberately has no advanced search.
   Future<void> refresh({int? capacity, String? equipmentTypeId}) async {
     await _run(() async {
@@ -36,6 +45,7 @@ class RoomsProvider extends ChangeNotifier {
         capacity: capacity,
         equipmentTypeId: equipmentTypeId,
       );
+      await _loadFreeNow();
     });
   }
 
@@ -60,6 +70,7 @@ class RoomsProvider extends ChangeNotifier {
   Future<void> select(String roomId) async {
     await _run(() async {
       _selected = await _api.getById(roomId);
+      await _loadFreeNow();
     });
   }
 
@@ -69,6 +80,19 @@ class RoomsProvider extends ChangeNotifier {
     await _run(() async {
       _schedule = await _api.schedule(roomId, date);
     });
+  }
+
+  Future<void> _loadFreeNow() async {
+    try {
+      final now = DateTime.now().toUtc();
+      final free = await _api.searchAvailable(
+        from: now.toIso8601String(),
+        to: now.add(const Duration(hours: 1)).toIso8601String(),
+      );
+      _freeNowIds = {for (final room in free) room.id};
+    } catch (_) {
+      _freeNowIds = {};
+    }
   }
 
   Future<void> _run(Future<void> Function() action) async {

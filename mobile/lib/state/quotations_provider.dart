@@ -3,16 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../api/quotations_api.dart';
 import '../models/quotation.dart';
 
-/// S4 (Costing, Validation, Approval & Audit) state for the student app. SCAFFOLD.
-///
-/// Mirrors `BookingRequestsProvider`, the working S1 reference. Calls land on a 501 until S4
-/// builds the endpoints, so [error] is set and [quotation] stays null — the screens show their
-/// real error state rather than pretending.
-///
-/// S4, to bring this to life:
-///   1. Implement `api/src/StudyHive.Api/Controllers/Approvals/QuotationsController.cs`.
-///   2. Register this provider in `main.dart`'s MultiProvider, sharing `authProvider.apiClient`.
-///   3. Point M-08 and the booking-history view at it.
+/// S4 (Costing, Validation, Approval & Audit) state for the student app, over [QuotationsApi].
+/// Mirrors `BookingRequestsProvider`: a failed call sets [error] and the screens show it.
 ///
 /// Deliberately read-only. There is no approve/reject here: that decision belongs to a librarian
 /// on W-04, and the student side of it is only ever a status to look at.

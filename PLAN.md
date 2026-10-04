@@ -277,7 +277,7 @@ Covers **CW-01, CW-03, CW-05 (web), CW-06 (web), CW-07 (web), CW-08 (web), CW-12
 
 ### Phase C — nice-to-have (same day, after Phase B; cut from the bottom if late)
 
-**Claude — branch `fix/mobile-polish` (+ small API bits):**
+**Claude — branch `fix/mobile-polish` (+ small API bits):** ✅ [PR #38](https://github.com/ItsAloka/StudyHive/pull/38) (C-23 = release APK in 3.9)
 - C-17 "Free now" only when `/api/rooms/available` says the room is free for the next hour; otherwise no tag.
 - C-18 Greeting by time of day (morning / afternoon / evening).
 - C-19 Room detail header inside `SafeArea`.

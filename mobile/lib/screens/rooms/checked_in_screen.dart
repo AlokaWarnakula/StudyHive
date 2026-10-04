@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/room.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/colombo_time.dart';
 import '../../widgets/studyhive_ui.dart';
 
 /// M-15 "Checked in" — the success state returned by the room-booking API.
@@ -14,7 +15,7 @@ class CheckedInScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final room = result?.roomName ?? 'B-204';
-    final until = result == null ? '4:00 PM' : _time(result!.endsAt.toLocal());
+    final until = result == null ? '16:00' : colomboHhmm(result!.endsAt);
 
     if (!previewEnabled && result == null) {
       return Scaffold(
@@ -65,11 +66,5 @@ class CheckedInScreen extends StatelessWidget {
                     Navigator.of(context).popUntil((route) => route.isFirst)),
           ]),
     ))));
-  }
-
-  static String _time(DateTime value) {
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final minute = value.minute.toString().padLeft(2, '0');
-    return '$hour:$minute ${value.hour < 12 ? 'AM' : 'PM'}';
   }
 }

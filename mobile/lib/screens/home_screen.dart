@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Lbl('Good morning'),
+            Lbl(greetingAt(DateTime.now())),
             Text(firstName, style: headingStyle(fontSize: 21)),
           ],
         ),

@@ -228,8 +228,9 @@ class _QuotationViewScreenState extends State<QuotationViewScreen> {
         if (!_live) SecondaryButton('Cancel this request', onPressed: () {}),
         GhostButton(
           'See approval status',
+          // C-20: swap with Approval status instead of stacking the two screens on each other.
           onPressed:
-              () => Navigator.of(context).push(
+              () => Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
                   builder:
                       (_) => ApprovalStatusScreen(requestId: widget.requestId),

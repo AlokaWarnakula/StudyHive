@@ -18,6 +18,7 @@ const demoRooms = <RoomDetail>[
     capacity: 6,
     hourlyRate: 150,
     isActive: true,
+    availability: 'Free now',
     qrCode: 'STUDYHIVE-B204',
     equipment: [
       RoomEquipmentItem(
@@ -51,6 +52,7 @@ const demoRooms = <RoomDetail>[
     capacity: 10,
     hourlyRate: 220,
     isActive: false,
+    availability: 'Maintenance today',
     qrCode: 'STUDYHIVE-C301',
     equipment: [
       RoomEquipmentItem(

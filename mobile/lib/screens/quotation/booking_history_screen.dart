@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../utils/colombo_time.dart';
 import '../../data/demo_seed.dart';
 import '../../state/booking_requests_provider.dart';
 import '../../widgets/studyhive_ui.dart';
@@ -82,7 +83,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
                   trailing: ShTag.forStatus(booking.status),
                 ),
                 FNote(
-                  '${booking.completedAt} · Rs. ${booking.totalCost.toStringAsFixed(0)} spent',
+                  '${_day(booking.completedAt)} · Rs. ${booking.totalCost.toStringAsFixed(0)} spent',
                 ),
               ],
             ),
@@ -172,4 +173,10 @@ class _LiveHistory extends StatelessWidget {
       ],
     );
   }
+}
+
+/// CW-11: the completion date as "Mon 6 Oct" (Colombo), never the raw ISO string.
+String _day(String iso) {
+  final parsed = DateTime.tryParse(iso);
+  return parsed == null ? '' : colomboDay(parsed);
 }
