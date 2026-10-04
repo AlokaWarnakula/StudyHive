@@ -72,9 +72,10 @@ This is the part you built. Concretely, in the repo:
   JWT signing key, missing DB connection string, wildcard `AllowedHosts`, or (as of S1) a missing
   agent-service key/URL. Same pattern each time: no known-value fallback outside local dev.
 - **React shell** — `web/src/App.tsx` (routing), `components/AppShell.tsx` (side nav + sign-out),
-  `routes/ProtectedRoute.tsx` (redirects unauthenticated/wrong-role users to `/login`),
-  `store/authStore.ts` (Zustand — access/refresh tokens are memory-only by design, never
-  `localStorage`, so a page reload means signing in again).
+  `routes/ProtectedRoute.tsx` (redirects unauthenticated users to `/login?next=…`, wrong-role users
+  to `/login`), `store/authStore.ts` (Zustand — the access token is memory-only, never
+  `localStorage`; the refresh token is the API's httpOnly `studyhive_refresh` cookie, and
+  `components/SessionRestore.tsx` exchanges it on load, so a reload keeps staff signed in — PLAN.md D1).
 - **Flutter shell** — `mobile/lib/app.dart` (switches Login/Home on auth state),
   `screens/home_screen.dart` (bottom-nav shell), `state/auth_provider.dart` (session state; tokens
   persisted via `flutter_secure_storage`, never plain prefs), `state/token_store.dart` (abstracted so
