@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using StudyHive.Api.Controllers.Auth;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
@@ -92,10 +93,35 @@ internal static class TestSupport
     /// <summary>Deletes everything created under the given user ids, respecting FK order
     /// (WorkflowExecutions -> BookingRequests -> StudentProfiles -> Users; step logs and request
     /// items cascade with their parents).</summary>
+    /// <remarks>A workflow the test submitted may still be running on the factory's
+    /// WorkflowBackgroundService when the test ends, and can insert a quotation between the deletes
+    /// (23503 on fk_quotations_booking_requests). The whole delete pass is retried with a growing
+    /// pause (about 4.5 s in all) until that workflow has finished. Waiting on workflow status instead
+    /// does not work: some tests leave a workflow deliberately unfinished.</remarks>
     public static async Task CleanupAsync(WebApplicationFactory<Program> factory, params Guid[] userIds)
     {
         if (userIds.Length == 0) return;
 
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await DeleteCreatedRowsAsync(factory, userIds);
+                return;
+            }
+            catch (DbUpdateException ex) when (attempt < 6 && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt));
+            }
+            catch (PostgresException ex) when (attempt < 6 && ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt));
+            }
+        }
+    }
+
+    private static async Task DeleteCreatedRowsAsync(WebApplicationFactory<Program> factory, Guid[] userIds)
+    {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>();
 

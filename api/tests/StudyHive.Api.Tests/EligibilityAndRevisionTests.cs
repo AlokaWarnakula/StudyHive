@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 using StudyHive.Api.Contracts;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
@@ -99,9 +100,20 @@ public sealed class EligibilityAndRevisionTests : IAsyncLifetime
         await TestSupport.CleanupAsync(factory, userIds.ToArray());
         using (var scope = factory.Services.CreateScope())
         {
+            // Other test classes' workflows may pick this active room/consumable for their own
+            // quotations (the fake agent takes the first fitting room in the shared DB). If one still
+            // references it, retire it instead of deleting so their cleanup is not broken.
             var db = Db(scope);
-            await db.Consumables.Where(c => c.Id == consumableId).ExecuteDeleteAsync();
-            await db.StudyRooms.Where(r => r.Id == roomId).ExecuteDeleteAsync();
+            try { await db.Consumables.Where(c => c.Id == consumableId).ExecuteDeleteAsync(); }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                await db.Consumables.Where(c => c.Id == consumableId).ExecuteUpdateAsync(s => s.SetProperty(c => c.IsActive, false));
+            }
+            try { await db.StudyRooms.Where(r => r.Id == roomId).ExecuteDeleteAsync(); }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                await db.StudyRooms.Where(r => r.Id == roomId).ExecuteUpdateAsync(s => s.SetProperty(r => r.IsActive, false));
+            }
         }
         await factory.DisposeAsync();
     }
