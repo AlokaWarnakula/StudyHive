@@ -119,4 +119,18 @@ void main() {
       ); // 20:00, the audit case
     });
   });
+
+  group('CW-11 quotation room lines', () {
+    test('an ISO instant becomes a Colombo day and time', () {
+      expect(
+        formatItemName('Quiet Study 101 2026-10-13T10:00:00+05:30'),
+        'Quiet Study 101 · Tue 13 Oct, 10:00',
+      );
+      expect(
+        formatItemName('Quiet Study 101 2026-10-13T04:30:00Z'),
+        'Quiet Study 101 · Tue 13 Oct, 10:00',
+      );
+      expect(formatItemName('A4 printouts'), 'A4 printouts');
+    });
+  });
 }
