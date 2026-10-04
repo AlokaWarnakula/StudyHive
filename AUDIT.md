@@ -626,3 +626,11 @@ Fixes for the findings above (PLAN.md section 3). One row per audit ID; "cut" ro
 | CW-12 | [#36](https://github.com/ItsAloka/StudyHive/pull/36) | live: request detail "Quiet Study 101 · Thu 8 Oct · 10:00–11:00 · Checked in · 20:08"; usage report Checked in tile; calendar booker/purpose/Checked in columns (data from B3a schedule detail) |
 | W-13 | [#36](https://github.com/ItsAloka/StudyHive/pull/36) | `B3Pages.test`: QR image + Print QR sticker; live: room detail draws the QR in the browser (qrcode) |
 | W-25 / W-26 (D2) | [#36](https://github.com/ItsAloka/StudyHive/pull/36) | `permissions.test`: Users/Settings only outside production builds; live (production build): no Users/Settings links for Admin |
+| C-17 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | `polish_test`: only rooms the availability search returns are Free now; failed search shows no tag; live: Free now on free rooms, Inactive on AUDIT Room Z |
+| C-18 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | `polish_test`: greeting follows the Colombo clock (20:00 → Good evening); live: "Good afternoon" at 15:56 |
+| C-19 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | live: room detail header under an app bar, clear of the status bar |
+| C-20 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | code: `pushReplacement` both ways between Approval status and Cost breakdown |
+| C-21 / D3 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | live: launcher icon and splash show the StudyHive mark; login logo asset; profile initials; no PHOTO/AVATAR placeholders |
+| C-22 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | code: no SCAFFOLD/TODO left in `mobile/lib` |
+| C-23 | 3.9 | release APK built and installed in the end-of-day check |
+| CW-11 (mobile) | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | code: approval timeline, booking history, check-in times via `utils/colombo_time.dart`; free-times grid uses the phone clock (correct on a Sri Lanka phone) |
