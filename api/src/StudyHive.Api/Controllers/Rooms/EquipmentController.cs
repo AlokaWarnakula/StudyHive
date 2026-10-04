@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
+using StudyHive.Api.Services;
 
 namespace StudyHive.Api.Controllers.Rooms;
 
@@ -14,7 +15,7 @@ namespace StudyHive.Api.Controllers.Rooms;
 [ApiController]
 [Route("api/equipment")]
 [Authorize]
-public sealed class EquipmentController(StudyHiveDbContext db) : ControllerBase
+public sealed class EquipmentController(StudyHiveDbContext db, IAuditWriter audit) : ControllerBase
 {
     /// <summary>Add an equipment type.</summary>
     [HttpPost]
@@ -50,6 +51,7 @@ public sealed class EquipmentController(StudyHiveDbContext db) : ControllerBase
         };
 
         db.EquipmentTypes.Add(equipment);
+        audit.Write("EquipmentCreated", "EquipmentType", equipment.Id, new { equipment.Name, equipment.Category });
         await db.SaveChangesAsync(ct);
 
         return StatusCode(StatusCodes.Status201Created, ToResponse(equipment));
@@ -152,6 +154,7 @@ public sealed class EquipmentController(StudyHiveDbContext db) : ControllerBase
         equipment.Description = NormalizeOptional(request.Description);
         equipment.IsActive = request.IsActive;
         equipment.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("EquipmentUpdated", "EquipmentType", equipment.Id, new { equipment.Name, equipment.Category, equipment.IsActive });
 
         await db.SaveChangesAsync(ct);
         return Ok(ToResponse(equipment));

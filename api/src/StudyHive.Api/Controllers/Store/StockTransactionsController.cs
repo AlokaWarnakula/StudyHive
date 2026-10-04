@@ -17,7 +17,7 @@ public sealed class StockTransactionsController(StudyHiveDbContext db) : Control
 {
     /// <summary>Transaction history, filterable by consumable, with sort and pagination.</summary>
     [HttpGet]
-    [Authorize(Roles = Roles.StoreOfficer)]
+    [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Admin}")] // CW-05: Admin reads the ledger (consumable detail)
     [ProducesResponseType(typeof(PagedResult<StockTransactionResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] PageQuery query, [FromQuery] Guid? consumableId, CancellationToken ct)
     {

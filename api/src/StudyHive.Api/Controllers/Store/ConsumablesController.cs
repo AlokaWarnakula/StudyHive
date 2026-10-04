@@ -13,7 +13,7 @@ namespace StudyHive.Api.Controllers.Store;
 [ApiController]
 [Route("api/consumables")]
 [Authorize]
-public sealed class ConsumablesController(StudyHiveDbContext db, IConsumableStockService stockService) : ControllerBase
+public sealed class ConsumablesController(StudyHiveDbContext db, IConsumableStockService stockService, IAuditWriter audit) : ControllerBase
 {
     [HttpPost]
     [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Admin}")]
@@ -43,6 +43,7 @@ public sealed class ConsumablesController(StudyHiveDbContext db, IConsumableStoc
         };
 
         db.Consumables.Add(consumable);
+        audit.Write("ConsumableCreated", "Consumable", consumable.Id, new { consumable.Name, consumable.Unit, consumable.UnitPrice, consumable.StockQuantity });
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(GetById), new { id = consumable.Id }, ConsumableResponse.From(consumable));
@@ -160,7 +161,10 @@ public sealed class ConsumablesController(StudyHiveDbContext db, IConsumableStoc
         consumable.Unit = request.Unit.Trim();
         consumable.UnitPrice = request.UnitPrice;
         consumable.MinStockLevel = request.MinStockLevel;
+        if (request.IsActive is { } isActive) consumable.IsActive = isActive;
         consumable.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("ConsumableUpdated", "Consumable", consumable.Id,
+            new { consumable.Name, consumable.Unit, consumable.UnitPrice, consumable.MinStockLevel, consumable.IsActive });
 
         await db.SaveChangesAsync(ct);
         return Ok(ConsumableResponse.From(consumable));
@@ -178,6 +182,7 @@ public sealed class ConsumablesController(StudyHiveDbContext db, IConsumableStoc
 
         consumable.IsActive = false;
         consumable.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("ConsumableDeactivated", "Consumable", consumable.Id, new { consumable.Name });
         await db.SaveChangesAsync(ct);
 
         return NoContent();

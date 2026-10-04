@@ -4,7 +4,9 @@ using StudyHive.Api.Data.Entities;
 
 namespace StudyHive.Api.Services;
 
-public sealed record EligibilityResult(bool IsEligible, IReadOnlyList<string> Reasons);
+/// <param name="UsedThisWeek">Distinct requests submitted this Colombo week (AUDIT C-16: the app shows
+/// this instead of counting on its own).</param>
+public sealed record EligibilityResult(bool IsEligible, IReadOnlyList<string> Reasons, int UsedThisWeek = 0, int MaxBookingsPerWeek = 0);
 
 /// <summary>
 /// Centralizes S1's eligibility rule (DOCS §11 handoff line: "active account, within weekly booking
@@ -31,6 +33,11 @@ public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingE
     /// back to a UTC instant for comparison against <c>WorkflowExecution.StartedAt</c>.</summary>
     private static readonly TimeSpan ColomboOffset = TimeSpan.FromMinutes(330); // UTC+05:30, no DST
 
+    /// <summary>The one suspension rule: suspended through the last day of <c>suspended_until</c>.
+    /// The students list (CW-08) uses it too, so its flag always matches the eligibility verdict.</summary>
+    public static bool IsSuspended(DateOnly? suspendedUntil) =>
+        suspendedUntil is { } until && until >= DateOnly.FromDateTime(DateTime.UtcNow);
+
     private static DateTimeOffset CurrentWeekStart()
     {
         var nowInColombo = DateTimeOffset.UtcNow.ToOffset(ColomboOffset);
@@ -55,10 +62,9 @@ public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingE
             reasons.Add("Student profile is not active.");
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        if (profile.SuspendedUntil is { } suspendedUntil && suspendedUntil >= today)
+        if (IsSuspended(profile.SuspendedUntil))
         {
-            reasons.Add($"Student is suspended until {suspendedUntil:yyyy-MM-dd}.");
+            reasons.Add($"Student is suspended until {profile.SuspendedUntil:yyyy-MM-dd}.");
         }
 
         // DOCS Master Plan, S1 eligibility: "A student is eligible when they are active, not
@@ -96,6 +102,6 @@ public sealed class BookingEligibilityService(StudyHiveDbContext db) : IBookingE
             reasons.Add($"Weekly booking limit reached ({profile.MaxBookingsPerWeek} per week).");
         }
 
-        return new EligibilityResult(reasons.Count == 0, reasons);
+        return new EligibilityResult(reasons.Count == 0, reasons, submissionsThisWeek, profile.MaxBookingsPerWeek);
     }
 }

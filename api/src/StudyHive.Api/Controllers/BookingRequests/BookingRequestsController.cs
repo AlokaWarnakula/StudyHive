@@ -19,7 +19,8 @@ public sealed class BookingRequestsController(
     IBookingEligibilityService eligibilityService,
     IWorkflowOrchestrationService workflowOrchestration,
     IWorkflowQueue workflowQueue,
-    IConsumableStockService stockService) : ControllerBase
+    IConsumableStockService stockService,
+    IAuditWriter audit) : ControllerBase
 {
     /// <summary>Requests that still count against the weekly quota / can still be acted on by the student.</summary>
     private static readonly BookingRequestStatus[] CancellableStatuses =
@@ -272,6 +273,7 @@ public sealed class BookingRequestsController(
         if (!await AuthorizeOwnerAsync(bookingRequest.StudentId, ct, staffAllowed: false)) return Forbid();
 
         var now = DateTimeOffset.UtcNow;
+        var previousStatus = bookingRequest.Status;
         if (bookingRequest.Status == BookingRequestStatus.Approved)
         {
             var conflict = await CancelApprovedAsync(bookingRequest, now, ct);
@@ -292,6 +294,7 @@ public sealed class BookingRequestsController(
 
         bookingRequest.Status = BookingRequestStatus.Cancelled;
         bookingRequest.UpdatedAt = now;
+        audit.Write("BookingCancelled", "BookingRequest", bookingRequest.Id, new { previousStatus = previousStatus.ToString() });
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 

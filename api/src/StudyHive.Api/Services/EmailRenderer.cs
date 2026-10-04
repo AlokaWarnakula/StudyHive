@@ -16,6 +16,8 @@ namespace StudyHive.Api.Services;
 /// <item>BookingRejected / BookingRevisionRequested: the librarian's comment on the latest decision.</item>
 /// <item>BookingValidationFailed: the latest workflow's error_message, which is the revision note.</item>
 /// <item>BookingCancelled: the cancelled room bookings (room, Asia/Colombo time).</item>
+/// <item>MaintenanceConflict: each Confirmed booking a maintenance window overlaps, with the window's
+/// reason and times.</item>
 /// </list>
 /// Returns null when the row can never be rendered (its booking request is gone or the data it
 /// needs does not exist), and the dispatcher fails the row instead of retrying it.
@@ -45,6 +47,7 @@ public sealed class EmailRenderer(StudyHiveDbContext db)
                 "A librarian asked you to change your booking request before it can be approved.", ct),
             EmailTemplates.BookingValidationFailed => await ValidationFailedAsync(requestId, ct),
             EmailTemplates.BookingCancelled => await CancelledAsync(requestId, ct),
+            EmailTemplates.MaintenanceConflict => await MaintenanceConflictAsync(requestId, ct),
             _ => null,
         };
         if (paragraphs is null) return null;
@@ -150,6 +153,28 @@ public sealed class EmailRenderer(StudyHiveDbContext db)
             slots.Append('\n').Append($"- {booking.RoomName}: {FormatSlot(booking.StartsAt, booking.EndsAt)}");
         }
         return [slots.ToString()];
+    }
+
+    private async Task<List<string>?> MaintenanceConflictAsync(Guid requestId, CancellationToken ct)
+    {
+        var clashes = await (
+                from b in db.RoomBookings.AsNoTracking()
+                where b.BookingRequestId == requestId && b.Status == RoomBookingStatus.Confirmed
+                from w in db.MaintenanceWindows.AsNoTracking()
+                where w.RoomId == b.RoomId && w.StartsAt < b.EndsAt && w.EndsAt > b.StartsAt
+                orderby b.StartsAt
+                select new { RoomName = b.Room.Name, b.StartsAt, b.EndsAt, w.Reason, WindowStarts = w.StartsAt, WindowEnds = w.EndsAt })
+            .ToListAsync(ct);
+        // The window was changed or removed before the email went out: nothing to tell the student.
+        if (clashes.Count == 0) return null;
+
+        var text = new StringBuilder("The library has scheduled maintenance that overlaps your booking:");
+        foreach (var clash in clashes)
+        {
+            text.Append('\n').Append($"- {clash.RoomName}: your booking {FormatSlot(clash.StartsAt, clash.EndsAt)}; " +
+                $"maintenance ({clash.Reason}) {FormatSlot(clash.WindowStarts, clash.WindowEnds)}");
+        }
+        return [text.ToString(), "Please contact the library desk to move your booking."];
     }
 
     private static string FormatSlot(DateTimeOffset startsAt, DateTimeOffset endsAt)

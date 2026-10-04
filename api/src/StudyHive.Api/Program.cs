@@ -241,6 +241,8 @@ builder.Services.AddScoped<IConsumableStockService, ConsumableStockService>(); /
 builder.Services.AddSingleton<IWorkflowQueue, WorkflowQueue>();
 builder.Services.AddHostedService<WorkflowBackgroundService>();
 builder.Services.AddScoped<IBookingLifecycleService, BookingLifecycleService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IAuditWriter, AuditWriter>(); // CW-04: staff writes are audited in their own SaveChanges
 builder.Services.AddHostedService<BookingLifecycleBackgroundService>();
 
 // S3: the Brevo email sender. Off without Brevo:ApiKey + Brevo:SenderEmail, and nothing else depends on it.

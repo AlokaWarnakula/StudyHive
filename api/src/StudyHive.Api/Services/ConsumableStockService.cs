@@ -74,7 +74,7 @@ public interface IConsumableStockService
     Task<StockOperationResult> MarkUsedAsync(Guid reservationId, Guid performedByUserId, CancellationToken ct);
 }
 
-public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableStockService
+public sealed class ConsumableStockService(StudyHiveDbContext db, IAuditWriter audit) : IConsumableStockService
 {
     /// <summary>
     /// Every mutation here runs in a transaction. If the caller already opened one (the S4 approval
@@ -110,6 +110,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
             Notes = notes,
             CreatedBy = createdByUserId,
         });
+        audit.Write("StockIn", "Consumable", consumableId, new { quantity, balanceAfter = consumable.StockQuantity, notes });
         await db.SaveChangesAsync(ct);
 
         if (transaction is not null) await transaction.CommitAsync(ct);
@@ -290,6 +291,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
             StockReservationId = reservation.Id,
             CreatedBy = performedByUserId,
         });
+        audit.Write("ReservationReleased", "StockReservation", reservation.Id, new { reservation.ConsumableId, reservation.Quantity });
         await db.SaveChangesAsync(ct);
 
         if (transaction is not null) await transaction.CommitAsync(ct);
@@ -359,6 +361,7 @@ public sealed class ConsumableStockService(StudyHiveDbContext db) : IConsumableS
             StockReservationId = reservation.Id,
             CreatedBy = performedByUserId,
         });
+        audit.Write("ReservationIssued", "StockReservation", reservation.Id, new { reservation.ConsumableId, reservation.Quantity });
         await db.SaveChangesAsync(ct);
 
         if (transaction is not null) await transaction.CommitAsync(ct);

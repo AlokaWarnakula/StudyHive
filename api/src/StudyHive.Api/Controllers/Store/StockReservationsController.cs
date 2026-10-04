@@ -52,11 +52,24 @@ public sealed class StockReservationsController(StudyHiveDbContext db, IConsumab
     /// <summary>Backs W-22. `status` filters on the database's own four values — see the reservation
     /// status note in DOCS/S2_S3_S4_UI_Interface_Map.md before adding a fifth.</summary>
     [HttpGet]
-    [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Librarian}")]
+    [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Librarian},{Roles.Admin}")] // CW-05
     [ProducesResponseType(typeof(PagedResult<StockReservationResponse>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> List([FromQuery] PageQuery query, [FromQuery] string? status, CancellationToken ct)
+    public async Task<IActionResult> List(
+        [FromQuery] PageQuery query, [FromQuery] string? status, [FromQuery] DateOnly? dueOn, CancellationToken ct)
     {
-        IQueryable<StockReservation> reservations = db.StockReservations.AsNoTracking().Include(r => r.Consumable);
+        IQueryable<StockReservation> reservations = db.StockReservations.AsNoTracking();
+
+        // CW-07 "Due today": reservations whose request has a booked room slot starting on that
+        // Asia/Colombo day (fixed UTC+05:30).
+        if (dueOn is { } day)
+        {
+            var dayStart = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.FromMinutes(330)).ToUniversalTime();
+            var dayEnd = dayStart.AddDays(1);
+            reservations = reservations.Where(r => db.RoomBookings.Any(b =>
+                b.BookingRequestId == r.BookingRequestItem.BookingRequestId &&
+                b.Status != RoomBookingStatus.Cancelled &&
+                b.StartsAt >= dayStart && b.StartsAt < dayEnd));
+        }
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -73,6 +86,7 @@ public sealed class StockReservationsController(StudyHiveDbContext db, IConsumab
         {
             null or "" or "createdat" => sortDescending ? reservations.OrderByDescending(r => r.CreatedAt) : reservations.OrderBy(r => r.CreatedAt),
             "status" => sortDescending ? reservations.OrderByDescending(r => r.Status) : reservations.OrderBy(r => r.Status),
+            "consumable" => sortDescending ? reservations.OrderByDescending(r => r.Consumable.Name) : reservations.OrderBy(r => r.Consumable.Name),
             _ => null,
         };
         if (sorted is null)
@@ -86,10 +100,42 @@ public sealed class StockReservationsController(StudyHiveDbContext db, IConsumab
         var items = await reservations
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(r => StockReservationResponse.From(r))
+            .Select(r => new
+            {
+                Reservation = r,
+                ConsumableName = r.Consumable.Name,
+                r.BookingRequestItem.BookingRequestId,
+                r.BookingRequestItem.BookingRequest.Objective,
+                StudentName = r.BookingRequestItem.BookingRequest.Student.User.FullName,
+                Slot = db.RoomBookings
+                    .Where(b => b.BookingRequestId == r.BookingRequestItem.BookingRequestId && b.Status != RoomBookingStatus.Cancelled)
+                    .OrderBy(b => b.StartsAt)
+                    .Select(b => new { RoomName = b.Room.Name, b.StartsAt, b.EndsAt })
+                    .FirstOrDefault(),
+            })
             .ToListAsync(ct);
 
-        return Ok(PagedResult<StockReservationResponse>.Create(items, query.Page, query.PageSize, totalItems));
+        var responses = items.Select(x => new StockReservationResponse
+        {
+            Id = x.Reservation.Id,
+            BookingRequestItemId = x.Reservation.BookingRequestItemId,
+            ConsumableId = x.Reservation.ConsumableId,
+            ConsumableName = x.ConsumableName,
+            Quantity = x.Reservation.Quantity,
+            Status = x.Reservation.Status,
+            ReservedAt = x.Reservation.ReservedAt,
+            ReleasedAt = x.Reservation.ReleasedAt,
+            UsedAt = x.Reservation.UsedAt,
+            CreatedAt = x.Reservation.CreatedAt,
+            BookingRequestId = x.BookingRequestId,
+            RequestObjective = x.Objective,
+            StudentName = x.StudentName,
+            RoomName = x.Slot?.RoomName,
+            SlotStartsAt = x.Slot?.StartsAt,
+            SlotEndsAt = x.Slot?.EndsAt,
+        }).ToList();
+
+        return Ok(PagedResult<StockReservationResponse>.Create(responses, query.Page, query.PageSize, totalItems));
     }
 
     /// <summary>Release a reservation and return the stock. Only a 'Reserved' reservation can be released.</summary>

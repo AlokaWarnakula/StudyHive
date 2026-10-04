@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
+using StudyHive.Api.Services;
 
 namespace StudyHive.Api.Controllers.Rooms;
 
@@ -13,7 +14,7 @@ namespace StudyHive.Api.Controllers.Rooms;
 [ApiController]
 [Route("api/rooms")]
 [Authorize]
-public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
+public sealed class RoomsController(StudyHiveDbContext db, IAuditWriter audit) : ControllerBase
 {
     /// <summary>
     /// Create a room.
@@ -76,6 +77,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         };
 
         db.StudyRooms.Add(room);
+        audit.Write("RoomCreated", "StudyRoom", room.Id, new { room.Name, room.Building, room.Capacity, room.HourlyRate });
 
         await db.SaveChangesAsync(ct);
 
@@ -424,6 +426,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         room.QrCode = qrCode;
         room.IsActive = request.IsActive;
         room.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("RoomUpdated", "StudyRoom", room.Id, new { room.Name, room.Building, room.Capacity, room.HourlyRate, room.IsActive });
 
         await db.SaveChangesAsync(ct);
         return Ok(ToResponse(room));
@@ -448,6 +451,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         {
             room.IsActive = false;
             room.UpdatedAt = DateTimeOffset.UtcNow;
+            audit.Write("RoomDeactivated", "StudyRoom", room.Id, new { room.Name });
             await db.SaveChangesAsync(ct);
         }
 
@@ -587,6 +591,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         };
 
         db.RoomEquipment.Add(assignment);
+        audit.Write("RoomEquipmentAdded", "StudyRoom", id, new { equipmentTypeId = equipment.Id, equipment = equipment.Name, assignment.Quantity });
         await db.SaveChangesAsync(ct);
 
         return StatusCode(StatusCodes.Status201Created, new RoomEquipmentResponse(
@@ -617,6 +622,7 @@ public sealed class RoomsController(StudyHiveDbContext db) : ControllerBase
         }
 
         db.RoomEquipment.Remove(assignment);
+        audit.Write("RoomEquipmentRemoved", "StudyRoom", roomId, new { equipmentTypeId });
         await db.SaveChangesAsync(ct);
         return NoContent();
     }

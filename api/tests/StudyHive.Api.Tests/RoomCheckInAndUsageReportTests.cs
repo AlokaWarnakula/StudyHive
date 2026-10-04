@@ -86,9 +86,16 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
     public async Task Librarian_Can_Read_Room_Usage_For_A_Date_Range()
     {
         var (_, profileId) = await CreateStudentClientAsync();
-        var start = new DateTimeOffset(2035, 3, 10, 8, 0, 0, TimeSpan.Zero);
-        var first = await SeedBookingAsync(profileId, RoomBookingStatus.Confirmed, start, 2);
+        // 10:00 in Colombo (04:30 UTC): C-15 buckets hours in the library's own time zone.
+        var start = new DateTimeOffset(2035, 3, 10, 10, 0, 0, TimeSpan.FromMinutes(330)).ToUniversalTime();
+        var first = await SeedBookingAsync(profileId, RoomBookingStatus.Completed, start, 2);
         await SeedBookingAsync(profileId, RoomBookingStatus.NoShow, start.AddHours(2), 1, first.RoomId);
+        using (var scope = factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<StudyHiveDbContext>().RoomBookings
+                .Where(b => b.Id == first.BookingId)
+                .ExecuteUpdateAsync(u => u.SetProperty(b => b.CheckedInAt, start.AddMinutes(5)));
+        }
 
         var client = factory.CreateClient();
         var (librarianId, _, token) = await TestSupport.CreateAndLoginStaffAsync(factory, client, UserRole.Librarian);
@@ -104,8 +111,14 @@ public class RoomCheckInAndUsageReportTests(WebApplicationFactory<Program> facto
         report!.TotalBookings.Should().Be(2);
         report.TotalBookedHours.Should().Be(3m);
         report.NoShows.Should().Be(1);
-        report.ByRoom.Single(r => r.RoomId == first.RoomId).UtilisationPercent.Should().Be(75m);
-        report.BookingsByHour.Single(h => h.Hour == 8).BookingCount.Should().Be(1);
+        report.CheckedIn.Should().Be(1);
+        var room = report.ByRoom.Single(r => r.RoomId == first.RoomId);
+        room.UtilisationPercent.Should().Be(75m);
+        room.CheckedIn.Should().Be(1);
+        room.NoShows.Should().Be(1);
+        report.BookingsByHour.Single(h => h.Hour == 10).BookingCount.Should().Be(1, "a 10:00 Colombo booking is in hour 10");
+        report.BookingsByHour.Single(h => h.Hour == 12).BookingCount.Should().Be(1);
+        report.BookingsByHour.Single(h => h.Hour == 4).BookingCount.Should().Be(0, "not the UTC hour");
     }
 
     [Theory]

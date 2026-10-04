@@ -45,6 +45,9 @@ public sealed class UpdateConsumableRequest
 
     [Range(0, int.MaxValue)]
     public int MinStockLevel { get; init; }
+
+    /// <summary>CW-05: false deactivates, true reactivates; left out, the current value is kept.</summary>
+    public bool? IsActive { get; init; }
 }
 
 /// <summary>Stock-in is a business operation, not an edit — it only ever adds. Use <see cref="StockAdjustmentRequest"/>
@@ -182,6 +185,16 @@ public sealed class StockReservationResponse
     public required DateTimeOffset? ReleasedAt { get; init; }
     public required DateTimeOffset? UsedAt { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
+
+    // CW-07: what the item is for and when it is needed. Filled by GET /api/stock-reservations;
+    // the single-reservation responses (create, release, use) leave them null.
+    public Guid? BookingRequestId { get; init; }
+    public string? RequestObjective { get; init; }
+    public string? StudentName { get; init; }
+    /// <summary>The request's first booked room slot, once approved; null before that.</summary>
+    public string? RoomName { get; init; }
+    public DateTimeOffset? SlotStartsAt { get; init; }
+    public DateTimeOffset? SlotEndsAt { get; init; }
 
     public static StockReservationResponse From(StockReservation r) => new()
     {
