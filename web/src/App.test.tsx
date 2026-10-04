@@ -11,7 +11,6 @@ function signIn(role: StaffRole) {
     .login(
       { id: "11111111-1111-1111-1111-111111111111", name: `Test ${role}`, email: `${role}@studyhive.test`, role },
       "access-token",
-      "refresh-token",
     );
 }
 

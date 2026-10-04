@@ -12,18 +12,19 @@ export interface UserResponse {
   createdAt: string;
 }
 
+/** With `?client=web` the refresh token is set as an httpOnly cookie and left out of this body (PLAN.md D1). */
 export interface AuthTokenResponse {
   accessToken: string;
   accessTokenExpiresAt: string;
-  refreshToken: string;
   refreshTokenExpiresAt: string;
   user: UserResponse;
 }
 
 export function login(email: string, password: string): Promise<AuthTokenResponse> {
-  return apiFetch<AuthTokenResponse>("/api/auth/login", { method: "POST", body: { email, password } });
+  return apiFetch<AuthTokenResponse>("/api/auth/login?client=web", { method: "POST", body: { email, password } });
 }
 
-export function logout(refreshToken: string): Promise<void> {
-  return apiFetch<void>("/api/auth/logout", { method: "POST", body: { refreshToken } });
+/** Revokes the refresh cookie's token and clears the cookie. The JSON body is required (CSRF guard). */
+export function logout(): Promise<void> {
+  return apiFetch<void>("/api/auth/logout?client=web", { method: "POST", body: {} });
 }

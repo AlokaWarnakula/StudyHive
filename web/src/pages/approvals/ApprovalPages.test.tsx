@@ -42,7 +42,6 @@ vi.mock("../../store/authStore", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({
       accessToken: "test-token",
-      refreshToken: "refresh",
       user: { id: "u1", name: "Test", email: "t@studyhive.test", role: auth.role },
       logout: () => undefined,
     }),

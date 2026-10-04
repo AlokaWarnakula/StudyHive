@@ -86,7 +86,7 @@ work in parallel on their own areas. IDs refer to [`AUDIT.md`](AUDIT.md).
     token into an httpOnly, Secure, SameSite cookie** set by the API (`/api/auth/login` and
     `/api/auth/refresh` with `?client=web`), and call `/api/auth/refresh` on app start. Never
     localStorage. *Fallback if the cookie work overruns: refresh-on-401 only, and document that a
-    reload signs staff out.*
+    reload signs staff out.* → **Done with the cookie (PR #31 API, PR #32 web); no fallback needed.**
   - **D2 Admin Users / Settings (W-25/26):** **hide both nav items and routes in production** for
     this release; record "user management" as future work. Not built.
   - **D3 Room photos (C-21):** **remove the photo placeholders** from mobile and web; no image upload.
@@ -170,7 +170,7 @@ Covers **C-05, C-12 (mobile client part)**.
 - **Verify on emulator:** leave the app 31 minutes, open a booking → it loads. (Done with the API's
   `Jwt__AccessTokenMinutes=2`: after expiry the booking detail loaded and the refresh token rotated.)
 
-#### A5. Web session — Codex, branch `fix/web-session`
+#### A5. Web session — Claude (Codex absent), branch `fix/web-session` — ✅ [PR #32](https://github.com/ItsAloka/StudyHive/pull/32)
 Covers **W-01, web token refresh, CW-02**.
 
 - Implement **D1** (API cookie part is small: Claude adds the `client=web` cookie mode to

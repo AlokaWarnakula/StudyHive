@@ -140,18 +140,17 @@ export function Screen({
   children: React.ReactNode;
 }) {
   const user = useAuthStore((s) => s.user);
-  const refreshToken = useAuthStore((s) => s.refreshToken);
   const storeLogout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
 
   async function handleLogout() {
-    if (refreshToken) {
-      // Best-effort — the token is memory-only anyway, so a failed revoke call doesn't leave a
-      // usable session lying around client-side.
-      await logoutRequest(refreshToken).catch(() => undefined);
-    }
+    // Sign out locally first so a slow or failed revoke call never leaves the session usable here;
+    // the call then revokes the refresh cookie's token and clears the cookie (best-effort).
+    // Both in the same tick, so the route guard never sees a signed-out user on a protected page
+    // (it would send a deliberate sign-out to /login?next=…).
     storeLogout();
     navigate("/login", { replace: true });
+    await logoutRequest().catch(() => undefined);
   }
 
   return (
