@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using StudyHive.Api.Data.Entities;
+using StudyHive.Api.Services;
 
 namespace StudyHive.Api.Controllers.StudentProfiles;
 
@@ -41,26 +42,35 @@ public sealed class StudentProfileResponse
 {
     public required Guid Id { get; init; }
     public required Guid UserId { get; init; }
+    /// <summary>CW-08: who the profile belongs to, so staff can recognise the student.</summary>
+    public required string FullName { get; init; }
+    public required string Email { get; init; }
     public required string StudentNumber { get; init; }
     public required string Department { get; init; }
     public required int YearOfStudy { get; init; }
     public required int MaxBookingsPerWeek { get; init; }
     public required int PenaltyPoints { get; init; }
     public required DateOnly? SuspendedUntil { get; init; }
+    /// <summary>CW-08: suspended today, by the same rule eligibility uses (BookingEligibilityService.IsSuspended).</summary>
+    public required bool IsSuspended { get; init; }
     public required bool IsActive { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
 
+    /// <summary>The profile's <c>User</c> must be loaded (Include) for the name and email.</summary>
     public static StudentProfileResponse From(StudentProfile profile) => new()
     {
         Id = profile.Id,
         UserId = profile.UserId,
+        FullName = profile.User.FullName,
+        Email = profile.User.Email,
         StudentNumber = profile.StudentNumber,
         Department = profile.Department,
         YearOfStudy = profile.YearOfStudy,
         MaxBookingsPerWeek = profile.MaxBookingsPerWeek,
         PenaltyPoints = profile.PenaltyPoints,
         SuspendedUntil = profile.SuspendedUntil,
+        IsSuspended = BookingEligibilityService.IsSuspended(profile.SuspendedUntil),
         IsActive = profile.IsActive,
         CreatedAt = profile.CreatedAt,
         UpdatedAt = profile.UpdatedAt,
@@ -71,4 +81,7 @@ public sealed class EligibilityResponse
 {
     public required bool Eligible { get; init; }
     public required IReadOnlyList<string> Reasons { get; init; }
+    /// <summary>C-16: requests submitted this Colombo week, and the weekly limit they count against.</summary>
+    public required int UsedThisWeek { get; init; }
+    public required int MaxBookingsPerWeek { get; init; }
 }

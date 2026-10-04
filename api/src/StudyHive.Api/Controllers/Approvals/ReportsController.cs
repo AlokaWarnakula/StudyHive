@@ -24,6 +24,9 @@ namespace StudyHive.Api.Controllers.Approvals;
 [Authorize]
 public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
 {
+    /// <summary>Asia/Colombo is a fixed UTC+05:30 with no daylight saving.</summary>
+    private static readonly TimeSpan ColomboOffset = TimeSpan.FromMinutes(330);
+
     /// <summary>Booking requests created in the <c>from</c>/<c>to</c> window (default: the last 30
     /// days): counts by status (every status, zeros included), counts and approved spend per week
     /// (weeks start Monday, Asia/Colombo), and approved spend against the budgets it was quoted
@@ -119,7 +122,7 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
             .ToListAsync(ct);
         var bookings = await db.RoomBookings.AsNoTracking()
             .Where(b => b.StartsAt < rangeEnd && b.EndsAt > rangeStart && b.Status != RoomBookingStatus.Cancelled)
-            .Select(b => new { b.RoomId, b.StartsAt, b.EndsAt, b.Status })
+            .Select(b => new { b.RoomId, b.StartsAt, b.EndsAt, b.Status, CheckedIn = b.CheckedInAt != null })
             .ToListAsync(ct);
 
         var rangeHours = (rangeEnd - rangeStart).TotalHours;
@@ -136,15 +139,17 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
                 roomBookings.Count,
                 Round(bookedHours),
                 Round(percent),
-                roomBookings.Count(b => b.Status == RoomBookingStatus.NoShow));
+                roomBookings.Count(b => b.Status == RoomBookingStatus.NoShow),
+                roomBookings.Count(b => b.CheckedIn));
         }).OrderByDescending(r => r.UtilisationPercent).ThenBy(r => r.RoomName).ToList();
 
         var totalBookedHours = byRoom.Sum(r => r.BookedHours);
         var averagePercent = rooms.Count == 0
             ? 0
             : Math.Min(100, (double)totalBookedHours / (rooms.Count * rangeHours) * 100);
+        // AUDIT C-15: hours are the library's own (Asia/Colombo, fixed UTC+05:30), so a 10:00 booking is in hour 10.
         var byHour = Enumerable.Range(0, 24)
-            .Select(hour => new RoomUsageHourResponse(hour, bookings.Count(b => b.StartsAt.UtcDateTime.Hour == hour)))
+            .Select(hour => new RoomUsageHourResponse(hour, bookings.Count(b => b.StartsAt.ToOffset(ColomboOffset).Hour == hour)))
             .ToList();
 
         return Ok(new RoomUsageReportResponse(
@@ -154,6 +159,7 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
             totalBookedHours,
             Round(averagePercent),
             bookings.Count(b => b.Status == RoomBookingStatus.NoShow),
+            bookings.Count(b => b.CheckedIn),
             byRoom.FirstOrDefault(r => r.BookingCount > 0)?.RoomName,
             byRoom,
             byHour));
@@ -200,9 +206,11 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
                 Reserved = -(c.Transactions
                     .Where(t => t.TransactionType == StockTransactionType.Reserve && t.CreatedAt >= rangeStart && t.CreatedAt < rangeEnd)
                     .Sum(t => (int?)t.Quantity) ?? 0),
-                Released = c.Transactions
-                    .Where(t => t.TransactionType == StockTransactionType.Release && t.CreatedAt >= rangeStart && t.CreatedAt < rangeEnd)
-                    .Sum(t => (int?)t.Quantity) ?? 0,
+                // CW-07: releasing a Pending reservation (reject, ask-for-change, cancel) moves no stock and
+                // writes no ledger row, so "released" counts released reservations, not Release transactions.
+                Released = c.Reservations
+                    .Where(r => r.Status == StockReservationStatus.Released && r.ReleasedAt >= rangeStart && r.ReleasedAt < rangeEnd)
+                    .Sum(r => (int?)r.Quantity) ?? 0,
                 StockedIn = c.Transactions
                     .Where(t => t.TransactionType == StockTransactionType.StockIn && t.CreatedAt >= rangeStart && t.CreatedAt < rangeEnd)
                     .Sum(t => (int?)t.Quantity) ?? 0,
@@ -244,6 +252,9 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
             .Select(g => new { Type = g.Key, Units = g.Sum(t => t.Quantity) })
             .ToListAsync(ct);
         int Total(StockTransactionType type) => Math.Abs(totals.Where(t => t.Type == type).Sum(t => t.Units));
+        var totalReleased = await db.StockReservations.AsNoTracking()
+            .Where(r => r.Status == StockReservationStatus.Released && r.ReleasedAt >= rangeStart && r.ReleasedAt < rangeEnd)
+            .SumAsync(r => (int?)r.Quantity, ct) ?? 0;
         var totalCost = await db.StockTransactions.AsNoTracking()
             .Where(t => t.TransactionType == StockTransactionType.StockOut && t.CreatedAt >= rangeStart && t.CreatedAt < rangeEnd)
             .SumAsync(t => (decimal?)(-t.Quantity * t.Consumable.UnitPrice), ct) ?? 0m;
@@ -261,7 +272,7 @@ public sealed class ReportsController(StudyHiveDbContext db) : ControllerBase
             Total(StockTransactionType.StockOut),
             totalCost,
             Total(StockTransactionType.Reserve),
-            Total(StockTransactionType.Release),
+            totalReleased,
             Total(StockTransactionType.StockIn),
             PagedResult<ConsumableUsageRowResponse>.Create(page, query.Page, query.PageSize, totalItems),
             lowStock));
@@ -327,6 +338,7 @@ public sealed record RoomUsageReportResponse(
     decimal TotalBookedHours,
     decimal AverageUtilisationPercent,
     int NoShows,
+    int CheckedIn,
     string? BusiestRoom,
     IReadOnlyList<RoomUsageRowResponse> ByRoom,
     IReadOnlyList<RoomUsageHourResponse> BookingsByHour);
@@ -337,7 +349,8 @@ public sealed record RoomUsageRowResponse(
     int BookingCount,
     decimal BookedHours,
     decimal UtilisationPercent,
-    int NoShows);
+    int NoShows,
+    int CheckedIn);
 
 public sealed record RoomUsageHourResponse(int Hour, int BookingCount);
 

@@ -47,6 +47,8 @@ public class EmailNotification
 /// the Validation agent's revision note.</item>
 /// <item>BookingCancelled — the request's cancelled room bookings (an Approved booking the student
 /// cancelled before it started).</item>
+/// <item>MaintenanceConflict — the request's Confirmed room bookings that a maintenance window now
+/// overlaps (CW-06: a librarian scheduled maintenance over them with force=true).</item>
 /// </list>
 /// </summary>
 public static class EmailTemplates
@@ -56,6 +58,7 @@ public static class EmailTemplates
     public const string BookingRevisionRequested = "BookingRevisionRequested";
     public const string BookingValidationFailed = "BookingValidationFailed";
     public const string BookingCancelled = "BookingCancelled";
+    public const string MaintenanceConflict = "MaintenanceConflict";
 
     public static string SubjectFor(string template) => template switch
     {
@@ -64,6 +67,7 @@ public static class EmailTemplates
         BookingRevisionRequested => "Your StudyHive booking request needs changes",
         BookingValidationFailed => "Your StudyHive booking request could not be validated",
         BookingCancelled => "Your StudyHive booking is cancelled",
+        MaintenanceConflict => "Maintenance affects your StudyHive booking",
         _ => throw new ArgumentOutOfRangeException(nameof(template), template, "Unknown email template."),
     };
 

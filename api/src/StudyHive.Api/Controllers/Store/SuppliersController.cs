@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using StudyHive.Api.Common;
 using StudyHive.Api.Data;
 using StudyHive.Api.Data.Entities;
+using StudyHive.Api.Services;
 
 namespace StudyHive.Api.Controllers.Store;
 
@@ -11,7 +12,7 @@ namespace StudyHive.Api.Controllers.Store;
 [ApiController]
 [Route("api/suppliers")]
 [Authorize]
-public sealed class SuppliersController(StudyHiveDbContext db) : ControllerBase
+public sealed class SuppliersController(StudyHiveDbContext db, IAuditWriter audit) : ControllerBase
 {
     [HttpPost]
     [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Admin}")]
@@ -39,6 +40,7 @@ public sealed class SuppliersController(StudyHiveDbContext db) : ControllerBase
         };
 
         db.Suppliers.Add(supplier);
+        audit.Write("SupplierCreated", "Supplier", supplier.Id, new { supplier.Name, supplier.ContactEmail });
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(List), null, SupplierResponse.From(supplier));
@@ -46,7 +48,7 @@ public sealed class SuppliersController(StudyHiveDbContext db) : ControllerBase
 
     /// <summary>Backs W-23.</summary>
     [HttpGet]
-    [Authorize(Roles = Roles.StoreOfficer)]
+    [Authorize(Roles = $"{Roles.StoreOfficer},{Roles.Admin}")] // CW-05: an Admin may create suppliers, so may also see them
     [ProducesResponseType(typeof(PagedResult<SupplierResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] PageQuery query, [FromQuery] bool activeOnly = true, CancellationToken ct = default)
     {
@@ -113,6 +115,7 @@ public sealed class SuppliersController(StudyHiveDbContext db) : ControllerBase
         supplier.Address = request.Address?.Trim();
         supplier.IsActive = request.IsActive;
         supplier.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("SupplierUpdated", "Supplier", supplier.Id, new { supplier.Name, supplier.ContactEmail, supplier.IsActive });
 
         await db.SaveChangesAsync(ct);
         return Ok(SupplierResponse.From(supplier));

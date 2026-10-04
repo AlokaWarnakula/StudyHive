@@ -15,7 +15,8 @@ namespace StudyHive.Api.Controllers.StudentProfiles;
 [Authorize]
 public sealed class StudentProfilesController(
     StudyHiveDbContext db,
-    IBookingEligibilityService eligibilityService) : ControllerBase
+    IBookingEligibilityService eligibilityService,
+    IAuditWriter audit) : ControllerBase
 {
     [HttpPost]
     [Authorize(Policy = "StudentOnly")]
@@ -53,6 +54,7 @@ public sealed class StudentProfilesController(
             YearOfStudy = request.YearOfStudy,
         };
         db.StudentProfiles.Add(profile);
+        profile.User = await db.Users.SingleAsync(u => u.Id == userId, ct);
         await db.SaveChangesAsync(ct);
 
         return CreatedAtAction(nameof(GetById), new { id = profile.Id }, StudentProfileResponse.From(profile));
@@ -65,7 +67,7 @@ public sealed class StudentProfilesController(
     public async Task<IActionResult> GetOwnProfile(CancellationToken ct)
     {
         var userId = User.GetUserId();
-        var profile = await db.StudentProfiles.AsNoTracking().SingleOrDefaultAsync(p => p.UserId == userId, ct);
+        var profile = await db.StudentProfiles.AsNoTracking().Include(p => p.User).SingleOrDefaultAsync(p => p.UserId == userId, ct);
         return profile is null ? NotFound() : Ok(StudentProfileResponse.From(profile));
     }
 
@@ -74,12 +76,15 @@ public sealed class StudentProfilesController(
     [ProducesResponseType(typeof(PagedResult<StudentProfileResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] PageQuery query, CancellationToken ct)
     {
-        IQueryable<StudentProfile> profiles = db.StudentProfiles.AsNoTracking();
+        IQueryable<StudentProfile> profiles = db.StudentProfiles.AsNoTracking().Include(p => p.User);
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
+            // CW-08: staff look students up by name or email as often as by number.
             var search = $"%{query.Search.Trim()}%";
-            profiles = profiles.Where(p => EF.Functions.ILike(p.StudentNumber, search) || EF.Functions.ILike(p.Department, search));
+            profiles = profiles.Where(p =>
+                EF.Functions.ILike(p.StudentNumber, search) || EF.Functions.ILike(p.Department, search) ||
+                EF.Functions.ILike(p.User.FullName, search) || EF.Functions.ILike(p.User.Email, search));
         }
 
         var sortDescending = !string.Equals(query.SortDir, "asc", StringComparison.OrdinalIgnoreCase);
@@ -88,6 +93,7 @@ public sealed class StudentProfilesController(
             null or "" or "createdat" => sortDescending ? profiles.OrderByDescending(p => p.CreatedAt) : profiles.OrderBy(p => p.CreatedAt),
             "studentnumber" => sortDescending ? profiles.OrderByDescending(p => p.StudentNumber) : profiles.OrderBy(p => p.StudentNumber),
             "department" => sortDescending ? profiles.OrderByDescending(p => p.Department) : profiles.OrderBy(p => p.Department),
+            "fullname" => sortDescending ? profiles.OrderByDescending(p => p.User.FullName) : profiles.OrderBy(p => p.User.FullName),
             _ => null,
         };
         if (sorted is null)
@@ -101,10 +107,10 @@ public sealed class StudentProfilesController(
         var items = await profiles
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(p => StudentProfileResponse.From(p))
             .ToListAsync(ct);
 
-        return Ok(PagedResult<StudentProfileResponse>.Create(items, query.Page, query.PageSize, totalItems));
+        return Ok(PagedResult<StudentProfileResponse>.Create(
+            items.Select(StudentProfileResponse.From).ToList(), query.Page, query.PageSize, totalItems));
     }
 
     [HttpGet("{id:guid}")]
@@ -113,7 +119,7 @@ public sealed class StudentProfilesController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
-        var profile = await db.StudentProfiles.AsNoTracking().SingleOrDefaultAsync(p => p.Id == id, ct);
+        var profile = await db.StudentProfiles.AsNoTracking().Include(p => p.User).SingleOrDefaultAsync(p => p.Id == id, ct);
         if (profile is null) return NotFound();
 
         if (!IsOwnerOrStaffReader(profile.UserId)) return Forbid();
@@ -127,7 +133,7 @@ public sealed class StudentProfilesController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(Guid id, UpdateStudentProfileRequest request, CancellationToken ct)
     {
-        var profile = await db.StudentProfiles.SingleOrDefaultAsync(p => p.Id == id, ct);
+        var profile = await db.StudentProfiles.Include(p => p.User).SingleOrDefaultAsync(p => p.Id == id, ct);
         if (profile is null) return NotFound();
 
         profile.Department = request.Department.Trim();
@@ -137,6 +143,10 @@ public sealed class StudentProfilesController(
         profile.SuspendedUntil = request.SuspendedUntil;
         profile.IsActive = request.IsActive;
         profile.UpdatedAt = DateTimeOffset.UtcNow;
+        audit.Write("StudentProfileUpdated", "StudentProfile", profile.Id, new
+        {
+            profile.MaxBookingsPerWeek, profile.PenaltyPoints, profile.SuspendedUntil, profile.IsActive, profile.Department, profile.YearOfStudy,
+        });
 
         await db.SaveChangesAsync(ct);
         return Ok(StudentProfileResponse.From(profile));
@@ -154,7 +164,13 @@ public sealed class StudentProfilesController(
         if (!IsOwnerOrStaffReader(profile.UserId)) return Forbid();
 
         var result = await eligibilityService.EvaluateAsync(id, excludeBookingRequestId: null, ct);
-        return Ok(new EligibilityResponse { Eligible = result.IsEligible, Reasons = result.Reasons });
+        return Ok(new EligibilityResponse
+        {
+            Eligible = result.IsEligible,
+            Reasons = result.Reasons,
+            UsedThisWeek = result.UsedThisWeek,
+            MaxBookingsPerWeek = result.MaxBookingsPerWeek,
+        });
     }
 
     /// <summary>Deliberately not the shared "any staff role" ResourceOwner policy — DOCS §11 scopes
