@@ -200,7 +200,7 @@ Covers **committed development keys**.
 
 ### Phase B — must-fix (after Phase A merges)
 
-#### B1. API role alignment, audit log, maintenance, reports — Claude, branch `fix/api-roles-audit`
+#### B1. API role alignment, audit log, maintenance, reports — Claude, branch `fix/api-roles-audit` — ✅ [PR #34](https://github.com/ItsAloka/StudyHive/pull/34)
 Covers **CW-04, CW-05 (API part), CW-06 (API part), CW-07 (report), C-15 (hours), CW-08 (API part)**.
 
 - **One role table (CW-05).** Decide per area and apply to both API and web (Codex mirrors it):
