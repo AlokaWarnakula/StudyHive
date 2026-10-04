@@ -37,8 +37,29 @@ export interface BookingRequest {
   latestWorkflowId: string | null;
   /** The rooms booked for it once approved (empty before), with check-in state (CW-12). */
   roomBookings?: RoomBookingSummary[];
+  /** The newest non-Draft quotation, with its desk payment once recorded (PLAN.md 3.1c). */
+  latestQuotation?: BookingQuotationSummary | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BookingQuotationSummary {
+  id: string;
+  status: "Draft" | "Proposed" | "Approved" | "Rejected" | "Superseded";
+  version: number;
+  totalAmount: number;
+  currency: string;
+  budgetSnapshot: number;
+  withinBudget: boolean;
+  paidAt?: string | null;
+  paymentReference?: string | null;
+}
+
+/** "Paid" / "Unpaid" for a request with an Approved quotation; null when payment does not apply. */
+export function paymentState(request: Pick<BookingRequest, "latestQuotation">): "Paid" | "Unpaid" | null {
+  const q = request.latestQuotation;
+  if (!q || q.status !== "Approved") return null;
+  return q.paidAt ? "Paid" : "Unpaid";
 }
 
 export interface RoomBookingSummary {
@@ -111,6 +132,15 @@ export function listBookingRequests(
 
 export function getBookingRequest(token: string, id: string): Promise<BookingRequest> {
   return apiFetch(`/api/booking-requests/${id}`, { token });
+}
+
+/** Librarian records the desk payment for an approved request (PLAN.md 3.1c). */
+export function recordPayment(token: string, id: string, paymentReference?: string): Promise<BookingQuotationSummary> {
+  return apiFetch(`/api/booking-requests/${id}/payment`, {
+    method: "POST",
+    token,
+    body: { paymentReference: paymentReference?.trim() || null },
+  });
 }
 
 export function getWorkflowStatus(token: string, id: string): Promise<WorkflowStatusResponse> {

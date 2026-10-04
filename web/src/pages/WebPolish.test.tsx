@@ -11,9 +11,11 @@ import { RoomDetailPage } from "./rooms/RoomDetailPage";
 
 /** PLAN.md Phase C web: CW-10 request detail, CW-11 room lines, CW-13 Remove equipment confirm. */
 
-vi.mock("../api/bookingRequests", () => ({
+vi.mock("../api/bookingRequests", async (importOriginal) => ({
+  paymentState: (await importOriginal<typeof import("../api/bookingRequests")>()).paymentState,
   getBookingRequest: vi.fn(),
   getWorkflowStatus: vi.fn(),
+  recordPayment: vi.fn(),
 }));
 
 vi.mock("../api/consumables", () => ({ getConsumable: vi.fn() }));

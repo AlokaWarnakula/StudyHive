@@ -6,6 +6,7 @@ import { Pagination, Tag, Toolbar } from "../../components/ui";
 import { ApiError } from "../../api/client";
 import {
   listBookingRequests,
+  paymentState,
   type BookingRequest,
   type BookingRequestStatus,
   type PagedResult,
@@ -160,6 +161,7 @@ export function RequestsPage() {
                       Status {sortMark("status")}
                     </button>
                   </th>
+                  <th>Payment</th>
                   <th>
                     <button type="button" onClick={() => toggleSort("createdAt")}>
                       Updated {sortMark("createdAt")}
@@ -185,6 +187,13 @@ export function RequestsPage() {
                     <td>Rs. {request.budget.toFixed(2)}</td>
                     <td>
                       <Tag tone={statusTone(request.status)}>{statusLabel(request.status)}</Tag>
+                    </td>
+                    <td>
+                      {paymentState(request) ? (
+                        <Tag tone={paymentState(request) === "Paid" ? "accent" : "outline"}>{paymentState(request)}</Tag>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>{formatDateTime(request.updatedAt)}</td>
                     <td>Open</td>

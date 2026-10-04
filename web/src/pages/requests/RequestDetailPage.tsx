@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Screen } from "../../components/AppShell";
-import { KeyValue, Tag, Timeline, Tile, type TimelineStep } from "../../components/ui";
+import { Dialog, Field, KeyValue, Tag, Timeline, Tile, type TimelineStep } from "../../components/ui";
 import { ApiError } from "../../api/client";
+import { can } from "../../auth/permissions";
 import {
   getBookingRequest,
   getWorkflowStatus,
+  paymentState,
+  recordPayment,
+  type BookingQuotationSummary,
   type BookingRequest,
   type BookingRequestStatus,
   type WorkflowStatusResponse,
@@ -260,6 +264,8 @@ export function RequestDetailPage() {
         </div>
 
         <div className="stack">
+          <PaymentTile request={request} onPaid={(q) => setRequest({ ...request, latestQuotation: q })} />
+
           <Tile label="Workflow">
             {!workflow ? (
               <div className="state-view">No workflow has been started for this request yet.</div>
@@ -322,6 +328,93 @@ export function RequestDetailPage() {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/**
+ * PLAN.md 3.3: the student pays the approved quotation at the library desk and the Librarian
+ * records it here. Shown only once the request has an Approved quotation.
+ */
+function PaymentTile({ request, onPaid }: { request: BookingRequest; onPaid: (q: BookingQuotationSummary) => void }) {
+  const token = useAuthStore((s) => s.accessToken);
+  const role = useAuthStore((s) => s.user?.role);
+  const [open, setOpen] = useState(false);
+  const [reference, setReference] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const state = paymentState(request);
+  const quotation = request.latestQuotation;
+  if (!state || !quotation) return null;
+
+  async function save() {
+    if (!token) return;
+    setSaving(true);
+    setError(null);
+    try {
+      onPaid(await recordPayment(token, request.id, reference));
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record the payment.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Tile label="Payment">
+      <KeyValue label="Total">Rs. {quotation.totalAmount.toFixed(2)}</KeyValue>
+      <KeyValue label="Status">
+        <Tag tone={state === "Paid" ? "accent" : "outline"}>{state}</Tag>
+      </KeyValue>
+      {state === "Paid" ? (
+        <p className="fnote" style={{ marginBottom: 0 }}>
+          Paid on {colomboStamp(quotation.paidAt!)}
+          {quotation.paymentReference ? ` · receipt ${quotation.paymentReference}` : ""}
+        </p>
+      ) : (
+        <>
+          <p className="fnote">The student pays this total at the library desk.</p>
+          {can(role, "payments.record") && (
+            <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+              Mark as paid
+            </button>
+          )}
+        </>
+      )}
+      {open && (
+        <Dialog
+          title="Mark as paid"
+          onClose={() => setOpen(false)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={save}>
+                {saving ? "Saving…" : "Save payment"}
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>Record that the student paid Rs. {quotation.totalAmount.toFixed(2)} at the desk.</p>
+          <Field label="Receipt number (optional)">
+            <input
+              className="input"
+              aria-label="Receipt number (optional)"
+              maxLength={60}
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+          </Field>
+          {error && (
+            <p role="alert" className="form-error">
+              {error}
+            </p>
+          )}
+        </Dialog>
+      )}
+    </Tile>
   );
 }
 
