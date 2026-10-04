@@ -17,6 +17,26 @@ String formatRs(double amount) =>
         ? 'Rs. ${amount.toStringAsFixed(0)}'
         : 'Rs. ${amount.toStringAsFixed(2)}';
 
+/// PLAN.md 3.2: the desk payment of an approved quotation in the student's words —
+/// "Paid · Mon 6 Oct · receipt R-1" or "Unpaid — pay Rs. 450 at the library desk".
+/// Null when payment does not apply: not approved, or cancelled (a cancelled booking keeps its
+/// Approved quotation).
+String? paymentLine(BookingRequest request) {
+  final quotation = request.latestQuotation;
+  if (quotation == null ||
+      quotation.status != 'Approved' ||
+      (request.status != 'Approved' && request.status != 'Completed')) {
+    return null;
+  }
+  final paidAt = quotation.paidAt;
+  if (paidAt == null) {
+    return 'Unpaid — pay ${formatRs(quotation.totalAmount)} at the library desk';
+  }
+  final reference = quotation.paymentReference;
+  return 'Paid · ${colomboDay(paidAt)}'
+      '${reference == null || reference.isEmpty ? '' : ' · receipt $reference'}';
+}
+
 /// A quotation status in the student's words.
 String quotationStatusLabel(String status) => switch (status) {
   'Proposed' => 'Waiting for librarian',

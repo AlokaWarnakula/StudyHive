@@ -247,6 +247,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
             const FNote('Enjoy the room. Nothing else to do here.'),
           ]),
+        if (paymentLine(request) != null)
+          Tile(children: [
+            const Lbl('Payment'),
+            Text(paymentLine(request)!,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          ]),
         if (request.status == 'RevisionRequested')
           Tile(children: [
             const Lbl('The librarian asked for a change'),

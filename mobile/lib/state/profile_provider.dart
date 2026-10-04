@@ -58,6 +58,23 @@ class ProfileProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// PLAN.md 3.2: save the edited profile; the caller updates the signed-in name.
+  Future<StudentProfile> update({
+    required String fullName,
+    required String studentNumber,
+    required String department,
+    required int yearOfStudy,
+  }) async {
+    final updated = await _api.updateMine(
+        fullName: fullName,
+        studentNumber: studentNumber,
+        department: department,
+        yearOfStudy: yearOfStudy);
+    _profile = updated;
+    notifyListeners();
+    return updated;
+  }
+
   void reset() {
     _profile = null;
     _eligibility = null;

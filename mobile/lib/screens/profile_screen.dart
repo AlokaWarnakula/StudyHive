@@ -7,7 +7,9 @@ import '../state/auth_provider.dart';
 import '../state/booking_requests_provider.dart';
 import '../state/profile_provider.dart';
 import '../widgets/studyhive_ui.dart';
+import 'change_password_screen.dart';
 import 'consumables/browse_consumables_screen.dart';
+import 'edit_profile_screen.dart';
 import 'quotation/booking_history_screen.dart';
 import 'quotation/quotation_view_screen.dart';
 
@@ -145,6 +147,24 @@ class _ProfileView extends StatelessWidget {
         Column(
           children: [
             _SettingRow(
+              label: 'Edit profile',
+              onTap:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EditProfileScreen(),
+                    ),
+                  ),
+            ),
+            _SettingRow(
+              label: 'Change password',
+              onTap:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ChangePasswordScreen(),
+                    ),
+                  ),
+            ),
+            _SettingRow(
               label: 'Browse consumables',
               onTap:
                   () => Navigator.of(context).push(
@@ -155,11 +175,8 @@ class _ProfileView extends StatelessWidget {
             ),
           ],
         ),
-        // D4/D5: email is the notification channel and there is no password reset in this
-        // release, so those rows are gone rather than doing nothing.
-        const FNote(
-          'Decisions arrive by email. To change your password, ask at the library desk.',
-        ),
+        // D4: email is the notification channel, so there is no notifications row.
+        const FNote('Decisions arrive by email.'),
         SecondaryButton(
           'Sign out',
           onPressed: () {

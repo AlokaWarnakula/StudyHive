@@ -25,6 +25,10 @@ class BookingQuotationSummary {
   final double budgetSnapshot;
   final bool withinBudget;
 
+  /// PLAN.md 3.1c: set when the librarian records the desk payment; null while unpaid.
+  final DateTime? paidAt;
+  final String? paymentReference;
+
   const BookingQuotationSummary({
     required this.id,
     required this.status,
@@ -33,7 +37,11 @@ class BookingQuotationSummary {
     required this.currency,
     required this.budgetSnapshot,
     required this.withinBudget,
+    this.paidAt,
+    this.paymentReference,
   });
+
+  bool get isPaid => paidAt != null;
 
   factory BookingQuotationSummary.fromJson(Map<String, dynamic> json) =>
       BookingQuotationSummary(
@@ -44,6 +52,10 @@ class BookingQuotationSummary {
         currency: json['currency'] as String? ?? 'LKR',
         budgetSnapshot: (json['budgetSnapshot'] as num).toDouble(),
         withinBudget: json['withinBudget'] as bool,
+        paidAt: json['paidAt'] == null
+            ? null
+            : DateTime.parse(json['paidAt'] as String),
+        paymentReference: json['paymentReference'] as String?,
       );
 }
 
