@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { logout as logoutRequest } from "../api/auth";
-import { useAuthStore, type StaffRole } from "../store/authStore";
+import { can, type Action } from "../auth/permissions";
+import { useAuthStore } from "../store/authStore";
 import { Icon, type IconName } from "./Icon";
 
 /**
@@ -8,22 +9,15 @@ import { Icon, type IconName } from "./Icon";
  * labelled groups Work / Rooms / Store / Insight, with Users and Settings pushed to the bottom)
  * beside a page area that each screen fills with its own topbar and body.
  *
- * Nav entries carry the same `allow` lists as their routes in App.tsx, so a role never sees a link
- * that would only redirect it away.
+ * Nav entries ask the same role table as their routes (auth/permissions.ts), so a role never sees a
+ * link that would only redirect it away.
  */
-
-const LIBRARIAN: StaffRole[] = ["Librarian", "Admin"];
-const LIBRARIAN_ONLY: StaffRole[] = ["Librarian"];
-const STORE: StaffRole[] = ["StoreOfficer", "Admin"];
-const STORE_OFFICER: StaffRole[] = ["StoreOfficer"];
-const ADMIN_ONLY: StaffRole[] = ["Admin"];
-const ALL_STAFF: StaffRole[] = ["Librarian", "StoreOfficer", "Admin"];
 
 interface NavEntry {
   to: string;
   label: string;
   icon: IconName;
-  allow: StaffRole[];
+  action: Action;
   end?: boolean;
 }
 
@@ -34,45 +28,45 @@ interface NavGroup {
 }
 
 const NAV: NavGroup[] = [
-  { items: [{ to: "/", label: "Dashboard", icon: "layout-dashboard", allow: ALL_STAFF, end: true }] },
+  { items: [{ to: "/", label: "Dashboard", icon: "layout-dashboard", action: "dashboard.view", end: true }] },
   {
     caption: "Work",
     items: [
-      { to: "/approvals", label: "Approvals", icon: "inbox", allow: LIBRARIAN_ONLY },
-      { to: "/requests", label: "Requests", icon: "file-text", allow: LIBRARIAN },
-      { to: "/students", label: "Students", icon: "graduation-cap", allow: LIBRARIAN },
+      { to: "/approvals", label: "Approvals", icon: "inbox", action: "approvals.view" },
+      { to: "/requests", label: "Requests", icon: "file-text", action: "requests.view" },
+      { to: "/students", label: "Students", icon: "graduation-cap", action: "students.view" },
     ],
   },
   {
     caption: "Rooms",
     items: [
-      { to: "/rooms", label: "Rooms", icon: "door-open", allow: LIBRARIAN, end: true },
-      { to: "/equipment", label: "Equipment", icon: "projector", allow: LIBRARIAN },
-      { to: "/maintenance", label: "Maintenance", icon: "wrench", allow: LIBRARIAN },
+      { to: "/rooms", label: "Rooms", icon: "door-open", action: "rooms.view", end: true },
+      { to: "/equipment", label: "Equipment", icon: "projector", action: "equipment.view" },
+      { to: "/maintenance", label: "Maintenance", icon: "wrench", action: "maintenance.view" },
     ],
   },
   {
     caption: "Store",
     items: [
-      { to: "/consumables", label: "Consumables", icon: "package", allow: STORE, end: true },
-      { to: "/reservations", label: "Reservations", icon: "clipboard-list", allow: STORE },
-      { to: "/suppliers", label: "Suppliers", icon: "truck", allow: STORE },
-      { to: "/reports/consumables", label: "Usage report", icon: "bar-chart-3", allow: STORE_OFFICER },
+      { to: "/consumables", label: "Consumables", icon: "package", action: "consumables.view", end: true },
+      { to: "/reservations", label: "Reservations", icon: "clipboard-list", action: "reservations.view" },
+      { to: "/suppliers", label: "Suppliers", icon: "truck", action: "suppliers.view" },
+      { to: "/reports/consumables", label: "Usage report", icon: "bar-chart-3", action: "reports.consumables" },
     ],
   },
   {
     caption: "Insight",
     items: [
-      { to: "/reports", label: "Reports", icon: "bar-chart-3", allow: LIBRARIAN, end: true },
-      { to: "/workflows", label: "Workflow runs", icon: "workflow", allow: LIBRARIAN_ONLY, end: true },
-      { to: "/audit-log", label: "Audit log", icon: "scroll-text", allow: ADMIN_ONLY },
+      { to: "/reports", label: "Reports", icon: "bar-chart-3", action: "reports.view", end: true },
+      { to: "/workflows", label: "Workflow runs", icon: "workflow", action: "workflows.view", end: true },
+      { to: "/audit-log", label: "Audit log", icon: "scroll-text", action: "auditLog.view" },
     ],
   },
   {
     foot: true,
     items: [
-      { to: "/users", label: "Users", icon: "users", allow: ADMIN_ONLY },
-      { to: "/settings", label: "Settings", icon: "settings", allow: ADMIN_ONLY },
+      { to: "/users", label: "Users", icon: "users", action: "users.view" },
+      { to: "/settings", label: "Settings", icon: "settings", action: "settings.view" },
     ],
   },
 ];
@@ -83,7 +77,7 @@ export function AppShell() {
 
   const groups = NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => (role ? i.allow.includes(role) : false)),
+    items: g.items.filter((i) => can(role, i.action)),
   })).filter((g) => g.items.length > 0);
 
   return (
@@ -121,22 +115,20 @@ export function AppShell() {
 
 /**
  * One screen's topbar + body. Detail screens pass `onBack` for the reference's left arrow; screens
- * with their own buttons pass `actions`. The signed-in identity sits on the right of every screen,
- * matching the dashboard and approval-queue frames.
+ * with their own buttons pass `actions`. The signed-in identity and Sign out sit on the right of
+ * every screen (AUDIT CW-03: they used to be hidden on 18 pages).
  */
 export function Screen({
   title,
   crumb,
   onBack,
   actions,
-  showUser = true,
   children,
 }: {
   title: string;
   crumb?: string;
   onBack?: () => void;
   actions?: React.ReactNode;
-  showUser?: boolean;
   children: React.ReactNode;
 }) {
   const user = useAuthStore((s) => s.user);
@@ -166,7 +158,7 @@ export function Screen({
           {crumb && <span className="crumb">{crumb}</span>}
         </div>
         {actions && <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>{actions}</div>}
-        {showUser && user && (
+        {user && (
           <div className="wtop-user" style={actions ? { marginLeft: 0 } : undefined}>
             <span className="tag tag-outline">{user.role === "StoreOfficer" ? "Store officer" : user.role}</span>
             <b style={{ fontSize: 14 }}>{user.name}</b>

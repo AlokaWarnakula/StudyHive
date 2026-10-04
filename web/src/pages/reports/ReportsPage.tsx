@@ -64,7 +64,6 @@ export function ReportsPage() {
   return (
     <Screen
       title="Reports"
-      showUser={false}
       actions={
         <input
           className="input"

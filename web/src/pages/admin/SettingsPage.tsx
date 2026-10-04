@@ -32,7 +32,6 @@ export function SettingsPage() {
     <Screen
       title="Settings"
       crumb="Changes are written to the audit log"
-      showUser={false}
       actions={
         <button type="button" className="btn btn-primary">
           Save changes

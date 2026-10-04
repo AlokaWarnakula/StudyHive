@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { can } from "../../auth/permissions";
 import { Screen } from "../../components/AppShell";
-import { Pagination, Tag, Toolbar } from "../../components/ui";
+import { Dialog, Pagination, Tag, Toolbar } from "../../components/ui";
 import {
   listStockReservations,
   releaseStockReservation,
@@ -11,6 +13,7 @@ import {
 } from "../../api/consumables";
 import { useAuthStore } from "../../store/authStore";
 import { RESERVATION_STATUS_LABELS, messageOf } from "./storeUtils";
+import { colomboSlot as formatSlot, colomboToday } from "../../utils/colomboTime";
 
 const STATUS_OPTIONS: StockReservationStatus[] = ["Pending", "Reserved", "Used", "Released"];
 
@@ -23,6 +26,10 @@ const PAGE_SIZE = 20;
  * two store actions on a held reservation: PUT …/release (stock back on the shelf) and PUT …/use
  * (issued, stock leaves the store). The filter sends the database's four values; the screen's
  * held / issued wording is display only. Owned by S3.
+ *
+ * AUDIT CW-07: each row says who it is for, which request, which room and when (from the API's
+ * reservation context), "Due today" keeps the ones whose room slot starts today (Colombo), and
+ * Issue / Release ask before they act.
  */
 export function ReservationsPage() {
   const token = useAuthStore((s) => s.accessToken);
@@ -35,6 +42,8 @@ export function ReservationsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [status, setStatus] = useState<StockReservationStatus | "">("");
+  const [dueToday, setDueToday] = useState(false);
+  const [confirming, setConfirming] = useState<{ reservation: StockReservation; action: "release" | "use" } | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
@@ -46,7 +55,10 @@ export function ReservationsPage() {
     setLoading(true);
     setError(null);
 
-    listStockReservations(token, { page, pageSize: PAGE_SIZE, status: status || undefined, sortBy, sortDir })
+    listStockReservations(token, {
+      page, pageSize: PAGE_SIZE, status: status || undefined, sortBy, sortDir,
+      dueOn: dueToday ? colomboToday() : undefined,
+    })
       .then((data) => {
         if (!cancelled) setResult(data);
       })
@@ -60,7 +72,7 @@ export function ReservationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, page, status, sortBy, sortDir, reload]);
+  }, [token, page, status, sortBy, sortDir, dueToday, reload]);
 
   function toggleSort(column: SortBy) {
     if (sortBy === column) {
@@ -77,6 +89,7 @@ export function ReservationsPage() {
   }
 
   async function act(reservation: StockReservation, action: "release" | "use") {
+    setConfirming(null);
     if (!token) return;
     setBusyId(reservation.id);
     setActionError(null);
@@ -93,8 +106,9 @@ export function ReservationsPage() {
 
   const items = result?.items ?? [];
   const firstRow = result && result.totalItems > 0 ? (result.page - 1) * result.pageSize + 1 : 0;
-  // Release and issue are StoreOfficer actions on the API; a Librarian can only look.
-  const canAct = role === "StoreOfficer";
+  // Release and issue are StoreOfficer actions on the API; a Librarian or Admin can only look.
+  const canAct = can(role, "reservations.act");
+  const canOpenRequest = can(role, "requests.view");
 
   return (
     <Screen title="Stock reservations" crumb={result ? `${result.totalItems} in total` : undefined}>
@@ -116,6 +130,17 @@ export function ReservationsPage() {
             </option>
           ))}
         </select>
+        <label className="radio">
+          <input
+            type="checkbox"
+            checked={dueToday}
+            onChange={(e) => {
+              setPage(1);
+              setDueToday(e.target.checked);
+            }}
+          />
+          Due today
+        </label>
       </Toolbar>
 
       {error && (
@@ -141,10 +166,12 @@ export function ReservationsPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Reservation</th>
                   <th>Item</th>
                   <th>Qty</th>
-                  <th>Held since</th>
+                  <th>Student</th>
+                  <th>Request</th>
+                  <th>Room</th>
+                  <th>Booking</th>
                   <th>
                     <button type="button" onClick={() => toggleSort("status")}>
                       Status {sortMark("status")}
@@ -162,11 +189,19 @@ export function ReservationsPage() {
                 {items.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      <b>{r.id.slice(0, 8)}</b>
+                      <b>{r.consumableName}</b>
                     </td>
-                    <td>{r.consumableName}</td>
                     <td>{r.quantity}</td>
-                    <td>{r.reservedAt ? new Date(r.reservedAt).toLocaleString() : "—"}</td>
+                    <td>{r.studentName ?? "—"}</td>
+                    <td>
+                      {r.bookingRequestId && canOpenRequest ? (
+                        <Link to={`/requests/${r.bookingRequestId}`}>{r.requestObjective ?? "Open request"}</Link>
+                      ) : (
+                        r.requestObjective ?? "—"
+                      )}
+                    </td>
+                    <td>{r.roomName ?? "Not booked yet"}</td>
+                    <td>{r.slotStartsAt && r.slotEndsAt ? formatSlot(r.slotStartsAt, r.slotEndsAt) : "—"}</td>
                     <td>
                       <Tag tone={r.status === "Reserved" ? "accent" : r.status === "Pending" ? "outline" : "neutral"}>
                         {RESERVATION_STATUS_LABELS[r.status]}
@@ -180,7 +215,7 @@ export function ReservationsPage() {
                             type="button"
                             className="btn btn-secondary"
                             disabled={busyId === r.id}
-                            onClick={() => act(r, "use")}
+                            onClick={() => setConfirming({ reservation: r, action: "use" })}
                           >
                             Issue
                           </button>
@@ -188,7 +223,7 @@ export function ReservationsPage() {
                             type="button"
                             className="btn btn-ghost"
                             disabled={busyId === r.id}
-                            onClick={() => act(r, "release")}
+                            onClick={() => setConfirming({ reservation: r, action: "release" })}
                           >
                             Release
                           </button>
@@ -209,6 +244,35 @@ export function ReservationsPage() {
             onNext={() => setPage((p) => p + 1)}
           />
         </>
+      )}
+
+      {confirming && (
+        <Dialog
+          title={confirming.action === "use" ? "Issue these items?" : "Release this reservation?"}
+          onClose={() => setConfirming(null)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setConfirming(null)}>
+                Not now
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => act(confirming.reservation, confirming.action)}
+              >
+                {confirming.action === "use" ? "Issue" : "Release"}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0 }}>
+            {confirming.reservation.quantity} × {confirming.reservation.consumableName}
+            {confirming.reservation.studentName ? ` for ${confirming.reservation.studentName}` : ""}.{" "}
+            {confirming.action === "use"
+              ? "The items leave the store and stock goes down."
+              : "The items go back on the shelf for others."}
+          </p>
+        </Dialog>
       )}
     </Screen>
   );

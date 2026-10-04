@@ -87,7 +87,6 @@ export function ConsumableUsagePage() {
   return (
     <Screen
       title="Consumable usage"
-      showUser={false}
       actions={
         <>
           <input

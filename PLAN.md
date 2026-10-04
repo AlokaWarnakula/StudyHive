@@ -251,7 +251,7 @@ Covers **C-06 (UI), C-07 (UI), C-08, C-09, C-11, C-13, C-14, C-16, C-02 (UI)**.
 - **Tests:** widget tests for checked-in detail (no buttons), Past tab for Completed, revision edit
   flow, draft Send, prefilled form from a slot, tab-switch refresh.
 
-#### B3. Web must-fix — Codex, branch `fix/web-ux`
+#### B3. Web must-fix — Claude (Codex absent), branch `fix/web-ux` — ✅ [PR #36](https://github.com/ItsAloka/StudyHive/pull/36)
 Covers **CW-01, CW-03, CW-05 (web), CW-06 (web), CW-07 (web), CW-08 (web), CW-12, W-13, W-25/26 (D2)**.
 
 - **Dialog errors (CW-01).** Rooms/Room detail/Equipment dialogs render their error inside the

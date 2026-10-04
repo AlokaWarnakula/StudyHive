@@ -38,7 +38,6 @@ export function QuotationDetailPage() {
       title={`Quotation ${id.slice(0, 8)}`}
       crumb={q ? `Version ${q.version} · ${formatDateTime(q.createdAt)}` : undefined}
       onBack={() => navigate(-1)}
-      showUser={false}
       actions={
         q?.status === "Proposed" && (
           <Link className="btn btn-primary" to={`/approvals/${q.id}`}>

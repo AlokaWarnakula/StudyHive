@@ -72,6 +72,13 @@ export interface StockReservation {
   releasedAt: string | null;
   usedAt: string | null;
   createdAt: string;
+  // CW-07: what it is for and when it is needed (filled by the list endpoint only).
+  bookingRequestId?: string | null;
+  requestObjective?: string | null;
+  studentName?: string | null;
+  roomName?: string | null;
+  slotStartsAt?: string | null;
+  slotEndsAt?: string | null;
 }
 
 /** Mirrors `suppliers`. `contactEmail` is citext in the database — casing does not create a second row. */
@@ -131,7 +138,12 @@ export function createConsumable(token: string, body: ConsumableWriteBody): Prom
   return apiFetch(`/api/consumables`, { method: "POST", token, body });
 }
 
-export function updateConsumable(token: string, id: string, body: ConsumableWriteBody): Promise<Consumable> {
+/** StoreOfficer only. `isActive` deactivates or reactivates the item (CW-05); left out, it is unchanged. */
+export function updateConsumable(
+  token: string,
+  id: string,
+  body: ConsumableWriteBody & { isActive?: boolean },
+): Promise<Consumable> {
   return apiFetch(`/api/consumables/${id}`, { method: "PUT", token, body });
 }
 
@@ -145,10 +157,11 @@ export function stockIn(token: string, id: string, quantity: number, notes?: str
   return apiFetch(`/api/consumables/${id}/stock-in`, { method: "POST", token, body: { quantity, notes } });
 }
 
-/** sortBy: createdAt | status. `status` must be one of the four stored values. */
+/** sortBy: createdAt | status | consumable. `status` must be one of the four stored values;
+ * `dueOn` (YYYY-MM-DD, Colombo day) keeps reservations whose booked room slot starts that day. */
 export function listStockReservations(
   token: string,
-  params: ListParams & { status?: StockReservationStatus } = {},
+  params: ListParams & { status?: StockReservationStatus; dueOn?: string } = {},
 ): Promise<PagedResult<StockReservation>> {
   return apiFetch(`/api/stock-reservations${buildQuery(params)}`, { token });
 }

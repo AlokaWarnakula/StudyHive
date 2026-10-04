@@ -234,6 +234,8 @@ describe("W-22 Stock reservations", () => {
     expect(screen.getByRole("option", { name: "Status: Held" })).toHaveValue("Reserved");
 
     fireEvent.click(await screen.findByRole("button", { name: "Release" }));
+    expect(releaseStockReservation).not.toHaveBeenCalled(); // CW-07: it asks first
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
     await waitFor(() => expect(releaseStockReservation).toHaveBeenCalledWith("test-token", held.id));
     expect(markStockReservationUsed).not.toHaveBeenCalled();
   });
@@ -246,6 +248,7 @@ describe("W-22 Stock reservations", () => {
 
     renderAt(<ReservationsPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Issue" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Issue" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Only a 'Reserved' reservation can be marked used.");
   });

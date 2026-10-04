@@ -44,7 +44,6 @@ export function RoomUtilisationPage() {
   return (
     <Screen
       title="Room utilisation"
-      showUser={false}
       actions={
         <input className="input" style={{ width: 170 }} type="month" value={month}
           onChange={(event) => { if (event.target.value) setMonth(event.target.value); }} aria-label="Report month" />
@@ -58,6 +57,7 @@ export function RoomUtilisationPage() {
           { label: "Total bookings", value: String(report.totalBookings) },
           { label: "Booked hours", value: report.totalBookedHours.toFixed(1) },
           { label: "Average utilisation", value: `${report.averageUtilisationPercent.toFixed(1)}%`, note: report.busiestRoom ? `Busiest: ${report.busiestRoom}` : undefined },
+          { label: "Checked in", value: String(report.checkedIn ?? 0) },
           { label: "No-shows", value: String(report.noShows) },
         ]} />
         <div className="k2">

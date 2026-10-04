@@ -12,7 +12,8 @@ export interface Room {
   floor: number;
   capacity: number;
   hourlyRate: number;
-  qrCode: string;
+  /** Null for students (AUDIT C-10); staff always get the code. */
+  qrCode: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +57,7 @@ export interface RoomUsageRow {
   bookedHours: number;
   utilisationPercent: number;
   noShows: number;
+  checkedIn: number;
 }
 
 export interface RoomUsageHour {
@@ -70,6 +72,7 @@ export interface RoomUsageReport {
   totalBookedHours: number;
   averageUtilisationPercent: number;
   noShows: number;
+  checkedIn: number;
   busiestRoom: string | null;
   byRoom: RoomUsageRow[];
   bookingsByHour: RoomUsageHour[];
@@ -88,6 +91,12 @@ export interface ScheduleSlot {
   startsAt: string;
   endsAt: string;
   kind: "Booked" | "Held" | "Maintenance";
+  // CW-12, staff only (the API leaves them null for students): who booked it and whether they came.
+  bookingRequestId?: string | null;
+  objective?: string | null;
+  studentName?: string | null;
+  bookingStatus?: "Confirmed" | "Completed" | "NoShow" | null;
+  checkedInAt?: string | null;
 }
 
 export interface ListRoomsParams {
@@ -172,11 +181,37 @@ export function listMaintenanceWindows(token: string, params: ListRoomsParams = 
   return apiFetch(`/api/maintenance-windows${buildQuery(params)}`, { token });
 }
 
+/** One Confirmed booking a new or moved window would overlap (409 maintenance-overlaps-bookings, CW-06). */
+export interface OverlappingBooking {
+  bookingId: string;
+  bookingRequestId: string;
+  studentName: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+/** `force` schedules over Confirmed bookings anyway; the API emails each affected student. */
 export function createMaintenanceWindow(
   token: string,
   body: { roomId: string; startsAt: string; endsAt: string; reason: string },
+  force = false,
 ): Promise<MaintenanceWindow> {
-  return apiFetch(`/api/maintenance-windows`, { method: "POST", token, body });
+  return apiFetch(`/api/maintenance-windows${force ? "?force=true" : ""}`, { method: "POST", token, body });
+}
+
+/** Only a window that has not started can be changed (409 maintenance-started otherwise). */
+export function updateMaintenanceWindow(
+  token: string,
+  id: string,
+  body: { startsAt: string; endsAt: string; reason: string },
+  force = false,
+): Promise<MaintenanceWindow> {
+  return apiFetch(`/api/maintenance-windows/${id}${force ? "?force=true" : ""}`, { method: "PUT", token, body });
+}
+
+/** Cancels a window that has not started. */
+export function deleteMaintenanceWindow(token: string, id: string): Promise<void> {
+  return apiFetch(`/api/maintenance-windows/${id}`, { method: "DELETE", token });
 }
 
 export function createEquipmentType(token: string, body: EquipmentTypeInput): Promise<EquipmentType> {

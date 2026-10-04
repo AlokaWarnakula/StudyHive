@@ -957,3 +957,14 @@ textarea.input {
   font-size: 13px;
   color: var(--color-accent-800);
 }
+
+/* W-13: printing a room's QR sticker shows only the code and the room name. */
+@media print {
+  body * { visibility: hidden !important; }
+  .qr-print, .qr-print * { visibility: visible !important; }
+  .qr-print { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  .qr-print .no-print { display: none !important; }
+  .qr-print img { width: 9cm; height: 9cm; }
+  .qr-print h2 { font-size: 28pt; margin: 0; }
+  .qr-print .print-only { display: block !important; }
+}

@@ -12,6 +12,8 @@ import {
 } from "../../api/bookingRequests";
 import { useAuthStore } from "../../store/authStore";
 import { statusLabel, statusTone } from "./status";
+import { colomboSlot, colomboTime } from "../../utils/colomboTime";
+import type { RoomBookingSummary } from "../../api/bookingRequests";
 
 const ACTIVE_WORKFLOW_STATUSES = new Set(["Started", "InProgress"]);
 const POLL_INTERVAL_MS = 3000;
@@ -117,7 +119,6 @@ export function RequestDetailPage() {
       title={title}
       crumb={`Requests / ${title}`}
       onBack={() => navigate("/requests")}
-      showUser={false}
       actions={<Tag tone={statusTone(request.status)}>{statusLabel(request.status)}</Tag>}
     >
       <div className="split">
@@ -155,6 +156,38 @@ export function RequestDetailPage() {
               </div>
             </div>
           </Tile>
+
+          {/* CW-12: where the request was booked and whether the student turned up. */}
+          {request.roomBookings && request.roomBookings.length > 0 && (
+            <Tile label="Room bookings">
+              <div className="table-scroll">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Room</th>
+                      <th>When</th>
+                      <th>Status</th>
+                      <th>Checked in</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {request.roomBookings.map((b) => (
+                      <tr key={b.id}>
+                        <td>
+                          <b>{b.roomName}</b>
+                        </td>
+                        <td>{colomboSlot(b.startsAt, b.endsAt)}</td>
+                        <td>
+                          <Tag tone={bookingTone(b)}>{bookingLabel(b)}</Tag>
+                        </td>
+                        <td>{b.checkedInAt ? colomboTime(b.checkedInAt) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Tile>
+          )}
 
           <Tile label="Requested items">
             {request.items.length === 0 ? (
@@ -255,4 +288,15 @@ export function RequestDetailPage() {
       </div>
     </Screen>
   );
+}
+
+/** CW-12: a booking that was checked in says so, whatever its later status. */
+function bookingLabel(b: RoomBookingSummary): string {
+  if (b.checkedInAt) return "Checked in";
+  return b.status === "NoShow" ? "No-show" : b.status;
+}
+
+function bookingTone(b: RoomBookingSummary): "accent" | "outline" | "neutral" {
+  if (b.checkedInAt || b.status === "Confirmed") return "accent";
+  return b.status === "NoShow" ? "outline" : "neutral";
 }
