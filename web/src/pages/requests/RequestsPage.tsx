@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatDateTime } from "../approvals/s4";
 import { useNavigate } from "react-router-dom";
 import { Screen } from "../../components/AppShell";
 import { Pagination, Tag, Toolbar } from "../../components/ui";
@@ -177,7 +178,7 @@ export function RequestsPage() {
                     <td>
                       {request.preferredDateFrom}
                       <div className="fnote">
-                        {request.preferredTimeFrom} – {request.preferredTimeTo}
+                        {request.preferredTimeFrom.slice(0, 5)} – {request.preferredTimeTo.slice(0, 5)}
                       </div>
                     </td>
                     <td>{request.groupSize}</td>
@@ -185,7 +186,7 @@ export function RequestsPage() {
                     <td>
                       <Tag tone={statusTone(request.status)}>{statusLabel(request.status)}</Tag>
                     </td>
-                    <td>{new Date(request.updatedAt).toLocaleString()}</td>
+                    <td>{formatDateTime(request.updatedAt)}</td>
                     <td>Open</td>
                   </tr>
                 ))}

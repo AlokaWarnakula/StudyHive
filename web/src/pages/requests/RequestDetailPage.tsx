@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Screen } from "../../components/AppShell";
 import { KeyValue, Tag, Timeline, Tile, type TimelineStep } from "../../components/ui";
 import { ApiError } from "../../api/client";
@@ -10,30 +10,50 @@ import {
   type BookingRequestStatus,
   type WorkflowStatusResponse,
 } from "../../api/bookingRequests";
+import { getConsumable } from "../../api/consumables";
 import { useAuthStore } from "../../store/authStore";
 import { statusLabel, statusTone } from "./status";
-import { colomboSlot, colomboTime } from "../../utils/colomboTime";
+import { colomboSlot, colomboStamp, colomboTime } from "../../utils/colomboTime";
 import type { RoomBookingSummary } from "../../api/bookingRequests";
 
 const ACTIVE_WORKFLOW_STATUSES = new Set(["Started", "InProgress"]);
 const POLL_INTERVAL_MS = 3000;
 
-/** The lifecycle the reference draws as a five-dot timeline, and where a status sits on it. */
-const LIFECYCLE: { title: string; reached: BookingRequestStatus[] }[] = [
-  { title: "Draft created", reached: ["Draft"] },
-  { title: "Submitted", reached: ["Submitted"] },
-  { title: "Processing", reached: ["Processing"] },
-  { title: "Pending approval", reached: ["PendingApproval", "RevisionRequested"] },
-  { title: "Approved / rejected", reached: ["Approved", "Rejected", "Completed", "Cancelled", "Failed"] },
-];
+const stamp = colomboStamp;
 
-function lifecycleSteps(request: BookingRequest): TimelineStep[] {
-  const currentIndex = LIFECYCLE.findIndex((s) => s.reached.includes(request.status));
-  return LIFECYCLE.map((s, i) => ({
-    title: s.title,
-    detail: i === currentIndex ? `Now · ${statusLabel(request.status)}` : undefined,
-    state: i < currentIndex ? "done" : i === currentIndex ? "current" : "waiting",
-  }));
+/** "10:00:00" → "10:00" (CW-11: no seconds). */
+function hhmm(time: string): string {
+  return time.slice(0, 5);
+}
+
+const FINAL_STATUSES = new Set<BookingRequestStatus>(["Approved", "Rejected", "RevisionRequested", "Cancelled", "Failed", "Completed"]);
+
+/**
+ * AUDIT CW-10: the request's own history, oldest first — created, the workflow run, the decision
+ * or final status, and each room booking with its check-in — instead of a fixed five-dot list.
+ */
+function historySteps(request: BookingRequest, workflow: WorkflowStatusResponse | null): TimelineStep[] {
+  const steps: TimelineStep[] = [{ title: "Request created", detail: stamp(request.createdAt), state: "done" }];
+  if (workflow) {
+    steps.push({ title: "Sent to the agents", detail: stamp(workflow.startedAt), state: "done" });
+    if (ACTIVE_WORKFLOW_STATUSES.has(workflow.status)) {
+      steps.push({ title: "Agents working", detail: `Step ${workflow.currentStep}${workflow.totalSteps ? ` of ${workflow.totalSteps}` : ""}`, state: "current" });
+    } else if (workflow.completedAt) {
+      steps.push({ title: `Agents ${workflow.status === "Failed" ? "failed" : "finished"}`, detail: stamp(workflow.completedAt), state: "done" });
+    }
+  }
+  if (request.status === "PendingApproval") {
+    steps.push({ title: "Waiting for a librarian", state: "current" });
+  } else if (FINAL_STATUSES.has(request.status)) {
+    steps.push({ title: statusLabel(request.status), detail: stamp(request.updatedAt), state: "done" });
+  } else if (request.status !== "Draft" || steps.length === 1) {
+    steps.push({ title: statusLabel(request.status), state: "current" });
+  }
+  for (const b of request.roomBookings ?? []) {
+    steps.push({ title: `Room booked · ${b.roomName} · ${colomboSlot(b.startsAt, b.endsAt)}`, detail: bookingLabel(b), state: "done" });
+    if (b.checkedInAt) steps.push({ title: `Checked in · ${b.roomName} · ${stamp(b.checkedInAt)}`, state: "done" });
+  }
+  return steps;
 }
 
 /**
@@ -49,7 +69,10 @@ export function RequestDetailPage() {
   const [request, setRequest] = useState<BookingRequest | null>(null);
   const [workflow, setWorkflow] = useState<WorkflowStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** CW-10: consumable names for the requested items, by id; an id stays shown if its read fails. */
+  const [itemNames, setItemNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!token || !id) return;
@@ -73,7 +96,9 @@ export function RequestDetailPage() {
           timer = setTimeout(load, POLL_INTERVAL_MS);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof ApiError ? err.message : "Failed to load this request.");
+        if (cancelled) return;
+        if (err instanceof ApiError && (err.status === 404 || err.status === 400)) setNotFound(true);
+        else setError(err instanceof ApiError ? err.message : "Failed to load this request.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -85,6 +110,18 @@ export function RequestDetailPage() {
       if (timer) clearTimeout(timer);
     };
   }, [token, id]);
+
+  const itemIds = request ? [...new Set(request.items.map((item) => item.consumableId))].join(",") : "";
+  useEffect(() => {
+    if (!token || !itemIds) return;
+    let cancelled = false;
+    Promise.all(itemIds.split(",").map((itemId) =>
+      getConsumable(token, itemId).then((c) => [itemId, c.consumable.name] as const).catch(() => null),
+    )).then((pairs) => {
+      if (!cancelled) setItemNames(Object.fromEntries(pairs.filter((p) => p !== null)));
+    });
+    return () => { cancelled = true; };
+  }, [token, itemIds]);
 
   const title = request ? request.id.slice(0, 8) : (id ?? "Request");
 
@@ -106,10 +143,13 @@ export function RequestDetailPage() {
     );
   }
 
-  if (!request) {
+  if (notFound || !request) {
     return (
-      <Screen title={title} crumb="Requests" onBack={() => navigate("/requests")}>
-        <div className="state-view">Request not found.</div>
+      <Screen title="Request not found" crumb="Requests" onBack={() => navigate("/requests")}>
+        <div className="state-view" role="alert">
+          <p style={{ marginTop: 0 }}>There is no booking request with this id.</p>
+          <Link to="/requests" className="btn btn-secondary">Back to booking requests</Link>
+        </div>
       </Screen>
     );
   }
@@ -144,7 +184,7 @@ export function RequestDetailPage() {
                 <span className="lbl">Preferred time</span>
                 <div>
                   <b>
-                    {request.preferredTimeFrom} – {request.preferredTimeTo}
+                    {hhmm(request.preferredTimeFrom)} – {hhmm(request.preferredTimeTo)}
                   </b>
                 </div>
               </div>
@@ -204,7 +244,7 @@ export function RequestDetailPage() {
                   <tbody>
                     {request.items.map((item) => (
                       <tr key={item.consumableId}>
-                        <td>{item.consumableId}</td>
+                        <td>{itemNames[item.consumableId] ?? item.consumableId}</td>
                         <td>{item.quantity}</td>
                       </tr>
                     ))}
@@ -212,15 +252,10 @@ export function RequestDetailPage() {
                 </table>
               </div>
             )}
-            {/* Stock levels and reservation state live behind S3's consumables API, which does not
-                exist yet — the ids the request actually carries are shown instead of inventing them. */}
-            <span className="fnote">
-              Stock levels and reservation state come from the S3 consumables API, which is not built yet.
-            </span>
           </Tile>
 
           <Tile label="Status timeline">
-            <Timeline steps={lifecycleSteps(request)} />
+            <Timeline steps={historySteps(request, workflow)} />
           </Tile>
         </div>
 
@@ -237,7 +272,7 @@ export function RequestDetailPage() {
                 <KeyValue label="Step">
                   {workflow.totalSteps ? `${workflow.currentStep} of ${workflow.totalSteps}` : String(workflow.currentStep)}
                 </KeyValue>
-                <KeyValue label="Started">{new Date(workflow.startedAt).toLocaleString()}</KeyValue>
+                <KeyValue label="Started">{colomboStamp(workflow.startedAt)}</KeyValue>
                 {workflow.errorCode && (
                   <p role="alert" className="form-error">
                     {workflow.errorCode}: {workflow.errorMessage}

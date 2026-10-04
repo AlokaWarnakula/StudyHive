@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { login, logout } from "../../api/auth";
 import { ApiError } from "../../api/client";
 import { useAuthStore, type StaffRole } from "../../store/authStore";
-import { Placeholder } from "../../components/ui";
+import { Icon } from "../../components/Icon";
 import { safeNextPath } from "../../routes/safeNextPath";
 
 const STAFF_ROLES: StaffRole[] = ["Librarian", "StoreOfficer", "Admin"];
@@ -16,7 +16,7 @@ function isStaffRole(role: string): role is StaffRole {
  * W-01 · Staff sign in — POST /api/auth/login, role read from the token, no role picker.
  *
  * This is a real S1 screen: the call, the error handling and the staff-only check are unchanged;
- * only the layout now follows the reference (photograph beside a 360px form).
+ * only the layout now follows the reference (a brand panel beside a 360px form; D3: no photo placeholder).
  */
 export function LoginPage() {
   const [email, setEmail] = useState("");
@@ -62,7 +62,11 @@ export function LoginPage() {
   return (
     <div className="signin">
       <div className="signin__photo">
-        <Placeholder label="library photograph" height="100%" />
+        <div className="signin__brand">
+          <Icon name="library" size={56} />
+          <div className="signin__brand-name">StudyHive</div>
+          <p>Study rooms and supplies for the library, booked and approved in one place.</p>
+        </div>
       </div>
       <div className="signin__panel">
         <form className="signin__form" onSubmit={handleSubmit} noValidate>

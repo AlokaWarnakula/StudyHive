@@ -3,7 +3,7 @@ import { getQuotation, listQuotations } from "../../api/approvals";
 import { Screen } from "../../components/AppShell";
 import { KeyValue, Meter, Tag, Tile } from "../../components/ui";
 import { useAuthStore } from "../../store/authStore";
-import { formatDateTime, formatMoney, formatQuantity, humanize, statusTone, useLoad } from "./s4";
+import { formatDateTime, formatItemName, formatMoney, formatQuantity, humanize, statusTone, useLoad } from "./s4";
 
 /**
  * W-05 · Quotation detail — GET /api/quotations/{id}: line items, totals and the budget
@@ -90,7 +90,7 @@ export function QuotationDetailPage() {
                     <tr key={line.id}>
                       <td>{index + 1}</td>
                       <td>
-                        {line.itemName}
+                        {formatItemName(line.itemName)}
                         {line.itemType === "Room" && (
                           <div className="fnote">{line.roomBookingId ? "Room booked" : "Not booked until approved"}</div>
                         )}

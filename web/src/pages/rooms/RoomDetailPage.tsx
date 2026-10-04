@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { colomboStamp } from "../../utils/colomboTime";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import {
@@ -22,6 +23,9 @@ export function RoomDetailPage() {
   const [catalogue, setCatalogue] = useState<EquipmentType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** CW-13: the equipment line waiting for "Remove" to be confirmed. */
+  const [removing, setRemoving] = useState<{ equipmentTypeId: string; name: string } | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   /** CW-01: each dialog shows its own save error inside itself. */
@@ -81,8 +85,10 @@ export function RoomDetailPage() {
 
   async function remove(equipmentTypeId: string) {
     if (!token || !id) return;
+    setRemoveBusy(true);
     try { await removeRoomEquipment(token, id, equipmentTypeId); await load(); }
     catch (err) { setError(messageOf(err, "Failed to remove equipment.")); }
+    finally { setRemoveBusy(false); setRemoving(null); }
   }
 
   return <Screen title={room ? `Room ${room.name}` : `Room ${id ?? ""}`} crumb="Rooms" onBack={() => navigate("/rooms")}
@@ -103,7 +109,7 @@ export function RoomDetailPage() {
       <div className="stack">
         <Tile label="Installed equipment" action={can(role, "rooms.equipment") && <button type="button" className="btn btn-secondary" onClick={() => { setDialogError(null); setAssignOpen(true); }}>Add equipment</button>}>
           {room.equipment.length === 0 ? <div className="state-view">No equipment assigned.</div> : <div className="table-scroll"><table className="table"><thead><tr><th>Equipment</th><th>Quantity</th><th /></tr></thead><tbody>
-            {room.equipment.map((item) => <tr key={item.equipmentTypeId}><td>{item.name}</td><td>{item.quantity}</td><td>{can(role, "rooms.equipment") && <button type="button" className="btn btn-ghost" onClick={() => remove(item.equipmentTypeId)}>Remove</button>}</td></tr>)}
+            {room.equipment.map((item) => <tr key={item.equipmentTypeId}><td>{item.name}</td><td>{item.quantity}</td><td>{can(role, "rooms.equipment") && <button type="button" className="btn btn-ghost" onClick={() => setRemoving({ equipmentTypeId: item.equipmentTypeId, name: item.name })}>Remove</button>}</td></tr>)}
           </tbody></table></div>}
         </Tile>
         <Tile label="Next seven days">
@@ -126,6 +132,10 @@ export function RoomDetailPage() {
       <Field label="Equipment"><select className="input" aria-label="Equipment" value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>{catalogue.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
       <Field label="Quantity"><input className="input" aria-label="Quantity" type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></Field>
     </Dialog>}
+    {removing && <Dialog title="Remove this equipment?" onClose={() => setRemoving(null)} actions={<>
+      <button type="button" className="btn btn-secondary" onClick={() => setRemoving(null)}>Keep it</button>
+      <button type="button" className="btn btn-primary" disabled={removeBusy} onClick={() => remove(removing.equipmentTypeId)}>{removeBusy ? "Removing…" : "Remove"}</button>
+    </>}><p style={{ margin: 0 }}>{removing.name} will no longer be listed for {room?.name ?? "this room"}.</p></Dialog>}
   </Screen>;
 }
 
@@ -133,4 +143,4 @@ function EditField({ name, label, value, type = "text" }: { name: string; label:
   return <Field label={label}><input className="input" name={name} aria-label={label} type={type} min={type === "number" ? 0 : undefined} defaultValue={value} required /></Field>;
 }
 function messageOf(error: unknown, fallback: string) { return error instanceof ApiError ? error.message : fallback; }
-function formatDate(value: string) { return new Date(value).toLocaleString(); }
+function formatDate(value: string) { return colomboStamp(value); }

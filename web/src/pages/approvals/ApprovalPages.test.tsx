@@ -181,10 +181,25 @@ describe("W-04 review proposal", () => {
 
     fireEvent.change(screen.getByRole("textbox", { name: "Comment to the student" }), { target: { value: "  Too big  " } });
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    // CW-13: Reject asks first, showing the comment the student will get.
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Too big");
+    expect(submitApprovalDecision).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reject" }));
     await waitFor(() =>
       expect(submitApprovalDecision).toHaveBeenCalledWith("test-token", { quotationId: "q-1", decision: "Rejected", comments: "Too big" }),
     );
     await waitFor(() => expect(getApproval).toHaveBeenCalledTimes(2)); // reloaded to show the decision
+  });
+
+  it("Ask for a change can be backed out of without sending anything (CW-13)", async () => {
+    renderReview();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Comment to the student" }), { target: { value: "Fewer items" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask for a change" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Go back" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(submitApprovalDecision).not.toHaveBeenCalled();
   });
 
   it("explains a 409 room conflict on approval", async () => {

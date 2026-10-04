@@ -13,7 +13,7 @@ import {
 } from "../../api/consumables";
 import { useAuthStore } from "../../store/authStore";
 import { RESERVATION_STATUS_LABELS, messageOf } from "./storeUtils";
-import { colomboSlot as formatSlot, colomboToday } from "../../utils/colomboTime";
+import { colomboSlot as formatSlot, colomboToday, colomboStamp } from "../../utils/colomboTime";
 
 const STATUS_OPTIONS: StockReservationStatus[] = ["Pending", "Reserved", "Used", "Released"];
 
@@ -207,7 +207,7 @@ export function ReservationsPage() {
                         {RESERVATION_STATUS_LABELS[r.status]}
                       </Tag>
                     </td>
-                    <td>{new Date(r.createdAt).toLocaleString()}</td>
+                    <td>{colomboStamp(r.createdAt)}</td>
                     <td>
                       {canAct && r.status === "Reserved" && (
                         <span style={{ display: "flex", gap: 6 }}>

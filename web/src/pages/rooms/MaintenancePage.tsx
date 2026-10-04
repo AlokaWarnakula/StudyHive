@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { colomboStamp } from "../../utils/colomboTime";
 import { ApiError } from "../../api/client";
 import {
   createMaintenanceWindow, deleteMaintenanceWindow, listMaintenanceWindows, listRooms, updateMaintenanceWindow,
@@ -140,7 +141,7 @@ export function MaintenancePage() {
       {result && items.length === 0 && !loading && <div className="state-view">No maintenance windows match this search.</div>}
       {items.length > 0 && <><div className="table-scroll"><table className="table"><thead><tr><th>Room</th><th>Reason</th><th>From</th><th>To</th><th>Bookings hit</th><th>Status</th>{canEdit && <th />}</tr></thead><tbody>
         {items.map((window) => { const status = windowStatus(window); return <tr key={window.id}><td><b>{window.roomName}</b></td><td>{window.reason}</td>
-          <td>{new Date(window.startsAt).toLocaleString()}</td><td>{new Date(window.endsAt).toLocaleString()}</td><td>{window.affectedBookings}</td>
+          <td>{colomboStamp(window.startsAt)}</td><td>{colomboStamp(window.endsAt)}</td><td>{window.affectedBookings}</td>
           <td><Tag tone={status === "Active" ? "outline" : status === "Planned" ? "accent" : "neutral"}>{status}</Tag></td>
           {canEdit && <td style={{ whiteSpace: "nowrap" }}>{status === "Planned" && <>
             <button type="button" className="btn btn-ghost" onClick={() => startEdit(window)}>Edit</button>
@@ -168,7 +169,7 @@ export function MaintenancePage() {
     </>}>
       <p style={{ marginTop: 0 }}>These students hold the room during this time. They stay booked, and each gets an email about the maintenance.</p>
       <div className="table-scroll"><table className="table"><thead><tr><th>Student</th><th>From</th><th>To</th></tr></thead><tbody>
-        {overlap.bookings.map((b) => <tr key={b.bookingId}><td>{b.studentName}</td><td>{new Date(b.startsAt).toLocaleString()}</td><td>{new Date(b.endsAt).toLocaleString()}</td></tr>)}
+        {overlap.bookings.map((b) => <tr key={b.bookingId}><td>{b.studentName}</td><td>{colomboStamp(b.startsAt)}</td><td>{colomboStamp(b.endsAt)}</td></tr>)}
       </tbody></table></div>
     </Dialog>}
 
@@ -176,7 +177,7 @@ export function MaintenancePage() {
       <button type="button" className="btn btn-secondary" onClick={() => setCancelling(null)}>Keep it</button>
       <button type="button" className="btn btn-primary" disabled={saving} onClick={confirmCancel}>Cancel window</button>
     </>}>
-      <p style={{ margin: 0 }}>{cancelling.roomName}: {cancelling.reason}, {new Date(cancelling.startsAt).toLocaleString()}. The audit log keeps a record.</p>
+      <p style={{ margin: 0 }}>{cancelling.roomName}: {cancelling.reason}, {colomboStamp(cancelling.startsAt)}. The audit log keeps a record.</p>
     </Dialog>}
   </Screen>;
 }

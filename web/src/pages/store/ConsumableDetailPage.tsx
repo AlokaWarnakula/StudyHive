@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { colomboStamp } from "../../utils/colomboTime";
 import { useNavigate, useParams } from "react-router-dom";
 import { Screen } from "../../components/AppShell";
 import { Dialog, Field, KeyValue, Meter, Pagination, Tag, Tile } from "../../components/ui";
@@ -207,7 +208,7 @@ export function ConsumableDetailPage() {
                   <tbody>
                     {ledgerItems.map((t) => (
                       <tr key={t.id}>
-                        <td>{new Date(t.createdAt).toLocaleString()}</td>
+                        <td>{colomboStamp(t.createdAt)}</td>
                         <td>
                           <Tag tone={t.transactionType === "StockIn" ? "accent" : "outline"}>
                             {TRANSACTION_LABELS[t.transactionType]}

@@ -289,7 +289,7 @@ Covers **CW-01, CW-03, CW-05 (web), CW-06 (web), CW-07 (web), CW-08 (web), CW-12
 - C-23 Build the demo APK as **release** (or `--dart-define=ENABLE_DEMO_DATA=false`).
 - CW-11 (mobile half) all times formatted in Colombo time, no raw ISO strings.
 
-**Codex — branch `fix/web-polish`:**
+**Codex — branch `fix/web-polish`:** ✅ [PR #39](https://github.com/ItsAloka/StudyHive/pull/39) (done by Claude; CW-14 supplier links cut)
 - CW-09 Forbidden or unknown route while signed in → "You don't have access" / "Page not found"
   inside the shell with a link to Dashboard; keep `?next=` after sign-in.
 - CW-10 Request detail: item names instead of GUIDs (use the consumables list); delete the stale

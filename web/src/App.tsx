@@ -1,5 +1,6 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { NotFoundPage } from "./components/StatusPages";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
 import { rolesFor } from "./auth/permissions";
 
@@ -96,9 +97,11 @@ export function App() {
         {/* W-25, W-26 — admin only */}
         <Route path="/users" element={<ProtectedRoute allow={rolesFor("users.view")}><UsersPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute allow={rolesFor("settings.view")}><SettingsPage /></ProtectedRoute>} />
-      </Route>
 
-      <Route path="*" element={<Navigate to="/login" replace />} />
+        {/* CW-09: an unknown URL while signed in stays in the shell; signed out, the shell's guard
+            sends it to /login?next=… like any other page. */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
     </Routes>
   );
 }

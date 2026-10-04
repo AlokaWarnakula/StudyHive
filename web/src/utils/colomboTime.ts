@@ -24,3 +24,8 @@ export function colomboSlot(startsAt: string, endsAt: string): string {
 export function colomboToday(): string {
   return new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 }
+
+/** "Mon 6 Oct, 14:05" (CW-11) */
+export function colomboStamp(iso: string): string {
+  return `${colomboDay(iso)}, ${colomboTime(iso)}`;
+}
