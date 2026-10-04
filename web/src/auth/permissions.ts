@@ -13,6 +13,7 @@ export type Action =
   | "auditLog.view"
   // S1
   | "requests.view" // GET /api/booking-requests: Librarian only
+  | "payments.record" // POST /api/booking-requests/{id}/payment: Librarian
   | "students.view" // GET /api/student-profiles: Librarian, Admin
   | "students.edit" // PUT /api/student-profiles/{id}: Admin
   // S2
@@ -63,6 +64,7 @@ export const PERMISSIONS: Record<Action, StaffRole[]> = {
   "workflows.view": L,
   "auditLog.view": A,
   "requests.view": L,
+  "payments.record": L,
   "students.view": LA,
   "students.edit": A,
   "rooms.view": LA,
