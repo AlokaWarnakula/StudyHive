@@ -22,11 +22,11 @@ Everything is built, every audit blocker and must-fix is merged, and **the app i
 | Railway: Postgres, api, agent (private), web | ✅ live — URLs in section 6 |
 | Production logins + demo data | ✅ seeded (`production-bootstrap.sql`, then `demo-data.sql`) |
 | `demo-data.sql` fix for a fresh database | 🟡 [PR #43](https://github.com/ItsAloka/StudyHive/pull/43) open, CI green — merge first |
-| **Edit profile, change password, manual payment** | ❌ **missing — section 3** |
+| **Edit profile, change password, manual payment** | 🟡 built and tested — [#45](https://github.com/ItsAloka/StudyHive/pull/45) API, [#46](https://github.com/ItsAloka/StudyHive/pull/46) web, [#47](https://github.com/ItsAloka/StudyHive/pull/47) mobile; merge in that order, then the live check (3.4) |
 | Live run-through, docs, evidence | ❌ sections 4–5 |
 
-Test baseline (must stay green, numbers only go up): API **241**, agent **87**, web lint + **109**
-tests + build, mobile analyze + **84** tests (`flutter test --concurrency=1`).
+Test baseline (must stay green, numbers only go up): API **254**, agent **87**, web lint + **117**
+tests + build, mobile analyze + **93** tests (`flutter test --concurrency=1`).
 
 ### Why section 3 exists
 A live check on 4 Oct found three gaps: **nobody can change a password**, a student **cannot edit
@@ -115,39 +115,40 @@ desk (cash/card, outside the system); the Librarian records it.
   `latestQuotation`) and to the quotation detail response, so web and mobile can show it.
 - Payment does **not** block check-in (keep it simple); it is shown as Paid / Unpaid everywhere.
 
-- [ ] Tests for a–c (profile: own edit works, duplicate number 409, limits/penalties unchanged, staff
+- [x] Tests for a–c (profile: own edit works, duplicate number 409, limits/penalties unchanged, staff
       403; password: new works and old fails, other session's refresh rejected, wrong current 400;
       payment: Librarian marks an approved request paid, second time 409, not-approved 409, Student
       and StoreOfficer 403, `paidAt` appears in the request and quotation responses).
 - [ ] Swagger shows the three new endpoints.
 
 ### 3.2 Mobile — branch `feat/mobile-profile-password-payment` (after 3.1 merges)
-- [ ] **Profile → "Edit profile"**: full name, student number, department, year → `PUT
+- [x] **Profile → "Edit profile"**: full name, student number, department, year → `PUT
       /api/student-profiles/me`; errors on the right field (409 on student number); profile refreshes.
       Email, limit, penalties and suspension stay read-only.
-- [ ] **Profile → "Change password"**: current, new, confirm (must match, 8+ chars) → `POST
+- [x] **Profile → "Change password"**: current, new, confirm (must match, 8+ chars) → `POST
       /api/auth/change-password`; store the returned tokens; success message.
-- [ ] **Payment status** on the approved booking / quotation screen and in **Booking history**:
+- [x] **Payment status** on the approved booking / quotation screen and in **Booking history**:
       "Paid · <date> · receipt <ref>" or "Unpaid — pay Rs <total> at the library desk".
-- [ ] Remove the note "To change your password, ask at the library desk." from Profile; the login
+- [x] Remove the note "To change your password, ask at the library desk." from Profile; the login
       screen keeps "Forgot your password? Ask at the library desk."
-- [ ] Widget tests for the two new screens and both payment states.
-- [ ] Rebuild the release APK with the live URL (section 6) and reinstall on the emulator / phone.
+- [x] Widget tests for the two new screens and both payment states.
+- [x] Rebuild the release APK with the live URL (section 6) and reinstall on the emulator / phone.
+      (4 Oct, from #47; installed on the Pixel 8 Pro emulator, live session restored.)
 
 ### 3.3 Web — branch `feat/web-payment` (after 3.1 merges; parallel with 3.2)
-- [ ] **Request detail (Librarian):** for an Approved/Completed request, a **"Mark as paid"** button
+- [x] **Request detail (Librarian):** for an Approved/Completed request, a **"Mark as paid"** button
       → small dialog with an optional receipt number → `POST /api/booking-requests/{id}/payment`.
       After saving, show "Paid on <date> · receipt <ref>" instead of the button.
       Hidden for StoreOfficer and Admin (add `payments.record` to `web/src/auth/permissions.ts`).
-- [ ] **Requests list:** a "Payment" column or badge (Paid / Unpaid / —) for approved requests.
-- [ ] Tests for the button, the role gate and both states.
+- [x] **Requests list:** a "Payment" column or badge (Paid / Unpaid / —) for approved requests.
+- [x] Tests for the button, the role gate and both states.
 
 ### 3.4 Check (after 3.1–3.3 merge and Railway redeploys)
 - [ ] On the **live** site: student edits profile and student number on the phone → the librarian sees
       it on the Students page; student changes password → old fails, new works; librarian marks an
       approved booking paid → the phone's booking history shows Paid.
-- [ ] Update `README.md` (what's built / out of scope) and decisions **D5 (revised)** and **D6** in
-      section 7.
+- [x] Update `README.md` (what's built / out of scope) and decisions **D5 (revised)** and **D6** in
+      section 7. (README "Accounts and payment"; D5/D6 are in section 7.)
 
 ---
 
