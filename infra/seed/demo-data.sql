@@ -3,11 +3,12 @@
 -- Safe to run more than once: every row has a fixed id and uses ON CONFLICT DO NOTHING.
 -- Dates are relative to now(), so "tomorrow's clashing booking" stays tomorrow whenever you run it.
 --
--- Run it AFTER the API has started once, because the API's DevDataSeeder creates the four role
--- logins, the dev student and the three preview consumables this script builds on.
+-- Run it AFTER the API has started once (it applies the migrations). Locally the API's DevDataSeeder
+-- creates the role logins, the dev student and the preview consumables this script builds on; on
+-- Railway, run production-bootstrap.sql first instead.
 --
 --   Local Docker:  docker exec -i studyhive-db psql -U studyhive -d studyhive < infra/seed/demo-data.sql
---   Railway:       psql "$DATABASE_URL" -f infra/seed/demo-data.sql
+--   Railway:       psql "$DATABASE_PUBLIC_URL" -v ON_ERROR_STOP=1 -f infra/seed/demo-data.sql
 --
 -- Every demo id starts with "d" so it is easy to spot (and delete) later.
 
@@ -35,7 +36,13 @@ INSERT INTO equipment_types (id, name, category, description) VALUES
   ('d2100000-0000-0000-0000-000000000004', 'Speakers',          'Audio',         'Portable powered speakers.')
 ON CONFLICT DO NOTHING;
 
--- Projector / Whiteboard already exist (70000000-...-01 / -02).
+-- Projector / Whiteboard (70000000-...-01 / -02) already exist in older local databases, but
+-- nothing else creates them, so a fresh (production) database needs them here.
+INSERT INTO equipment_types (id, name, category, description) VALUES
+  ('70000000-0000-0000-0000-000000000001', 'Projector',  'Presentation', 'Ceiling-mounted HD projector.'),
+  ('70000000-0000-0000-0000-000000000002', 'Whiteboard', 'Furniture',    'Large erasable whiteboard.')
+ON CONFLICT DO NOTHING;
+
 INSERT INTO room_equipment (room_id, equipment_type_id, quantity) VALUES
   ('d2000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000002', 1),
   ('d2000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', 1),
@@ -57,6 +64,21 @@ INSERT INTO maintenance_windows (id, room_id, starts_at, ends_at, reason) VALUES
    (date_trunc('day', now() AT TIME ZONE 'Asia/Colombo') + interval '2 days 9 hours')  AT TIME ZONE 'Asia/Colombo',
    (date_trunc('day', now() AT TIME ZONE 'Asia/Colombo') + interval '2 days 13 hours') AT TIME ZONE 'Asia/Colombo',
    'Projector bulb replacement and PC updates')
+ON CONFLICT DO NOTHING;
+
+-- The bookings below hang off DevDataSeeder's request #4 (Approved) and #7 (Completed). Production
+-- never runs DevDataSeeder, so create those two for the demo student when they are missing.
+INSERT INTO booking_requests (id, student_id, objective, group_size, preferred_date_from, preferred_date_to,
+                              preferred_time_from, preferred_time_to, sessions_required,
+                              session_duration_minutes, budget, notes, status, created_at, updated_at)
+SELECT r.id, p.id, r.objective, r.group_size, current_date + r.from_days, current_date + r.from_days + 1,
+       '09:00', '12:00', 2, 90, r.budget, 'Demo data', r.status, now() - r.age, now() - r.age
+FROM student_profiles p
+JOIN users u ON u.id = p.user_id AND u.email = 'student@studyhive.dev'
+CROSS JOIN (VALUES
+  ('10000000-0000-0000-0000-000000000004'::uuid, 'Host a data structures exam review session',  4, 75.00, 'Approved',  interval '18 days', -10),
+  ('10000000-0000-0000-0000-000000000007'::uuid, 'Complete a distributed systems study workshop', 8, 40.00, 'Completed', interval '32 days', -30)
+) AS r(id, objective, group_size, budget, status, age, from_days)
 ON CONFLICT DO NOTHING;
 
 -- The deliberate clash: A-201 is already booked tomorrow 14:00-16:00 Colombo time, which is the
