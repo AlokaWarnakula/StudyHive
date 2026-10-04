@@ -634,3 +634,9 @@ Fixes for the findings above (PLAN.md section 3). One row per audit ID; "cut" ro
 | C-22 | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | code: no SCAFFOLD/TODO left in `mobile/lib` |
 | C-23 | 3.9 | release APK built and installed in the end-of-day check |
 | CW-11 (mobile) | [#38](https://github.com/ItsAloka/StudyHive/pull/38) | code: approval timeline, booking history, check-in times via `utils/colombo_time.dart`; free-times grid uses the phone clock (correct on a Sri Lanka phone) |
+| CW-09 | [#39](https://github.com/ItsAloka/StudyHive/pull/39) | `App.test`: role-denied routes show "You don't have access" inside the shell; unknown URL → "Page not found" with Sign out; signed out → sign-in; live: store officer `/approvals`, `/no-such-page` |
+| CW-10 | [#39](https://github.com/ItsAloka/StudyHive/pull/39) | `WebPolish.test`: item names, no stale S3 text, history timeline with room booking, "Request not found" + back link; live: "Whiteboard markers", real history |
+| CW-11 (web) | [#39](https://github.com/ItsAloka/StudyHive/pull/39) | `WebPolish.test`: `formatItemName` → "Quiet Study 101 · Tue 13 Oct, 10:00"; request times without seconds; all date-times via `utils/colomboTime.ts`; live: quotation page has no ISO timestamp |
+| CW-13 | [#39](https://github.com/ItsAloka/StudyHive/pull/39) | `ApprovalPages.test`: Reject confirms with the comment, Ask for a change can be backed out; `WebPolish.test`: Remove equipment confirms; Issue/Release in #36 |
+| CW-14 | [#39](https://github.com/ItsAloka/StudyHive/pull/39) (form) | supplier form shows every problem and marks required fields; **cut**: supplier on Stock in and Suppliers tile, because the API has no consumable `suppliers[]` (B1 did not add it) |
+| D3 (web login) | [#39](https://github.com/ItsAloka/StudyHive/pull/39) | live: login brand panel instead of the "library photograph" placeholder |
