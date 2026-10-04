@@ -129,6 +129,43 @@ void main() {
     });
   }
 
+  test('signing out during a slow refresh stays signed out', () async {
+    final (auth, api, store) = await _signedIn();
+    api.refreshDelay = const Duration(milliseconds: 50);
+
+    final call = auth.apiClient.get('/api/booking-requests/booking-1');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await auth.logout();
+
+    await expectLater(call, throwsA(isA<ApiException>()));
+    expect(api.refreshCalls, 1);
+    expect(auth.isAuthenticated, isFalse, reason: 'the late refresh must not revive the session');
+    expect(store.values, isEmpty);
+  });
+
+  test('an offline cold start keeps the stored session for the next start', () async {
+    final store = _MemoryTokenStore()..values['refresh_token'] = 'refresh-1';
+    final offline = MockClient((_) async => throw http.ClientException('no network'));
+    final auth = AuthProvider(apiClient: ApiClient(client: offline), tokenStore: store);
+
+    await auth.tryRestoreSession();
+
+    expect(auth.isAuthenticated, isFalse);
+    expect(store.values['refresh_token'], 'refresh-1');
+    expect(auth.signedOutReason, ApiClient.offlineMessage);
+  });
+
+  test('a cold start with a rejected refresh token clears it', () async {
+    final store = _MemoryTokenStore()..values['refresh_token'] = 'refresh-old';
+    final rejecting = MockClient((_) async => _json({'title': 'Invalid refresh token'}, 401));
+    final auth = AuthProvider(apiClient: ApiClient(client: rejecting), tokenStore: store);
+
+    await auth.tryRestoreSession();
+
+    expect(auth.isAuthenticated, isFalse);
+    expect(store.values, isEmpty);
+  });
+
   test('concurrent 401s share one refresh', () async {
     final (auth, api, _) = await _signedIn();
     api.refreshDelay = const Duration(milliseconds: 50);

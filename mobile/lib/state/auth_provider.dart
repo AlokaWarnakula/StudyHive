@@ -35,6 +35,10 @@ class AuthProvider extends ChangeNotifier {
   /// The refresh in flight, shared by every call that hits a 401 at the same time.
   Future<bool>? _refreshing;
 
+  /// Bumped whenever the session is applied or cleared, so a refresh that finishes after a
+  /// sign-out (or a new sign-in) is thrown away instead of reviving the old session.
+  int _sessionGeneration = 0;
+
   AuthProvider({TokenStore? tokenStore, ApiClient? apiClient})
       : _tokenStore = tokenStore ?? const SecureTokenStore(),
         _apiClient = apiClient ?? ApiClient() {
@@ -62,10 +66,12 @@ class AuthProvider extends ChangeNotifier {
       await _expireSession();
       return false;
     }
+    final generation = _sessionGeneration;
     try {
       final response = await _apiClient.post('/api/auth/refresh', body: {
         'refreshToken': refreshToken,
       }) as Map<String, dynamic>;
+      if (generation != _sessionGeneration) return false; // signed out meanwhile
       final user = response['user'] as Map<String, dynamic>;
       await _applySession(
         accessToken: response['accessToken'] as String,
@@ -77,10 +83,13 @@ class AuthProvider extends ChangeNotifier {
     } on ApiException catch (e) {
       // Only a rejected refresh token ends the session. Offline, a timeout, a 429 from the auth
       // rate limiter or a 5xx keep it, and the original call's error is shown instead.
-      if (e.status == 400 || e.status == 401) await _expireSession();
+      if (generation != _sessionGeneration) return false;
+      if (_isRejectedRefresh(e)) await _expireSession();
       return false;
     }
   }
+
+  static bool _isRejectedRefresh(ApiException e) => e.status == 400 || e.status == 401;
 
   Future<void> _expireSession() async {
     if (_accessToken != null) _signedOutReason = sessionExpiredMessage;
@@ -147,9 +156,16 @@ class AuthProvider extends ChangeNotifier {
         studentName: user['fullName'] as String,
         studentEmail: user['email'] as String,
       );
-    } on ApiException {
-      // Expired/revoked — fall through to a clean logged-out state.
-      await _clearSession();
+    } on ApiException catch (e) {
+      if (_isRejectedRefresh(e)) {
+        // Expired/revoked — fall through to a clean logged-out state.
+        await _clearSession();
+      } else {
+        // Offline, timed out, rate-limited or a server error: keep the stored tokens so the next
+        // start can restore the session, and tell the student why they see the sign-in screen.
+        _signedOutReason = e.toString();
+        notifyListeners();
+      }
     }
   }
 
@@ -178,6 +194,7 @@ class AuthProvider extends ChangeNotifier {
     _studentName = studentName;
     _studentEmail = studentEmail;
     _signedOutReason = null;
+    _sessionGeneration++;
     _apiClient.accessToken = accessToken;
     await _tokenStore.write(_accessTokenKey, accessToken);
     await _tokenStore.write(_refreshTokenKey, refreshToken);
@@ -189,6 +206,7 @@ class AuthProvider extends ChangeNotifier {
     _refreshToken = null;
     _studentName = null;
     _studentEmail = null;
+    _sessionGeneration++;
     _apiClient.accessToken = null;
     await _tokenStore.delete(_accessTokenKey);
     await _tokenStore.delete(_refreshTokenKey);
