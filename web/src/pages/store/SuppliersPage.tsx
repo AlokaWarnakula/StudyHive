@@ -199,12 +199,15 @@ function SupplierDialog({
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    // Mirrors CreateSupplierRequest / UpdateSupplierRequest.
-    if (!name.trim()) return setError("Name is required.");
-    if (name.trim().length > 120) return setError("Name must be 120 characters or fewer.");
-    if (!EMAIL.test(contactEmail.trim())) return setError("Enter a valid contact email.");
-    if (!phone.trim()) return setError("Phone is required.");
-    if (phone.trim().length > 30) return setError("Phone must be 30 characters or fewer.");
+    // Mirrors CreateSupplierRequest / UpdateSupplierRequest. CW-14: every problem at once, not one per click.
+    const problems = [
+      !name.trim() && "Name is required.",
+      name.trim().length > 120 && "Name must be 120 characters or fewer.",
+      !EMAIL.test(contactEmail.trim()) && "Enter a valid contact email.",
+      !phone.trim() && "Phone is required.",
+      phone.trim().length > 30 && "Phone must be 30 characters or fewer.",
+    ].filter((p): p is string => typeof p === "string");
+    if (problems.length > 0) return setError(problems.join(" "));
 
     setError(null);
     setSaving(true);
@@ -235,11 +238,11 @@ function SupplierDialog({
         </>
       }
     >
-      <Field label="Name">
+      <Field label="Name (required)">
         <input className="input" aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       <div className="k2">
-        <Field label="Contact email">
+        <Field label="Contact email (required)">
           <input
             className="input"
             type="email"
@@ -248,7 +251,7 @@ function SupplierDialog({
             onChange={(e) => setContactEmail(e.target.value)}
           />
         </Field>
-        <Field label="Phone">
+        <Field label="Phone (required)">
           <input className="input" aria-label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </Field>
       </div>

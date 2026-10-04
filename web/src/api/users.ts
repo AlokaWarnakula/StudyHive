@@ -1,11 +1,8 @@
 /**
- * Shared/foundation — user administration API client. SCAFFOLD.
+ * Shared/foundation — user administration API client for W-25 Users & roles.
  *
- * Backs W-25 Users & roles. Not part of the plan's §11 API table: it exists because the reference
- * draws the screen. Maintained by S1 along with the rest of the foundation, not by S2/S3/S4.
- *
- * The endpoints return 501 until `api/src/StudyHive.Api/Controllers/Admin/UsersController.cs` is
- * implemented. Nothing here fabricates data.
+ * Out of scope for this release (PLAN.md D2): `api/src/StudyHive.Api/Controllers/Admin/UsersController.cs`
+ * answers 501, and production builds hide the Users page entirely. Nothing here fabricates data.
  *
  * One rule the reference itself imposes: a role change writes an audit row, so the dialog requires
  * a reason before it will save. Keep `reason` required in `changeUserRole` — that is not optional
@@ -46,18 +43,18 @@ function buildQuery(params: object): string {
   return qs ? `?${qs}` : "";
 }
 
-// TODO(foundation): implement GET /api/users
+// GET /api/users (501 until built, D2)
 export function listUsers(token: string, params: ListUsersParams = {}): Promise<PagedResult<UserSummary>> {
   return apiFetch(`/api/users${buildQuery(params)}`, { token });
 }
 
 /** `reason` is required: the change writes an audit row and an empty reason makes it useless. */
-// TODO(foundation): implement PUT /api/users/{id}/role
+// PUT /api/users/{id}/role (501 until built, D2)
 export function changeUserRole(token: string, id: string, role: UserRole, reason: string): Promise<UserSummary> {
   return apiFetch(`/api/users/${id}/role`, { method: "PUT", token, body: { role, reason } });
 }
 
-// TODO(foundation): implement PUT /api/users/{id}/status
+// PUT /api/users/{id}/status (501 until built, D2)
 export function setUserActive(token: string, id: string, isActive: boolean): Promise<UserSummary> {
   return apiFetch(`/api/users/${id}/status`, { method: "PUT", token, body: { isActive } });
 }

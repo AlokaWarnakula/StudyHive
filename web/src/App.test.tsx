@@ -102,34 +102,56 @@ describe("App routing", () => {
   it("denies a StoreOfficer the Librarian-owned areas", () => {
     signIn("StoreOfficer");
     renderAt("/approvals");
-    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+    expectNotAllowed();
   });
 
   it("denies a Librarian the StoreOfficer-owned store area", () => {
     signIn("Librarian");
     renderAt("/consumables");
-    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+    expectNotAllowed();
   });
 
   // S4 screens are gated exactly as their APIs are: the audit log is Admin-only, approvals Librarian-only.
   it("denies a Librarian the Admin-only audit log", () => {
     signIn("Librarian");
     renderAt("/audit-log");
-    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+    expectNotAllowed();
   });
 
   it("denies an Admin the Librarian-only approvals", () => {
     signIn("Admin");
     renderAt("/approvals");
-    expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
+    expectNotAllowed();
   });
 
   it("keeps Users and Settings for Admin only", () => {
     signIn("Librarian");
     renderAt("/users");
+    expectNotAllowed();
+  });
+
+  // CW-09: a signed-in user stays signed in and inside the shell, with a way back.
+  it("shows Page not found inside the shell for an unknown URL while signed in", () => {
+    signIn("Librarian");
+    renderAt("/no-such-page");
+    expect(screen.getByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Dashboard" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
+  });
+
+  it("sends a signed-out visitor of an unknown URL to sign in, keeping it as next", () => {
+    renderAt("/no-such-page");
     expect(screen.getByRole("heading", { name: "Sign in to StudyHive" })).toBeInTheDocument();
   });
 });
+
+/** CW-09: the "not allowed" page inside the shell, not a bounce to sign-in. */
+function expectNotAllowed() {
+  expect(screen.getByRole("heading", { name: "You don't have access" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Go to Dashboard" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Sign in to StudyHive" })).not.toBeInTheDocument();
+}
+
 
 describe("Sidebar navigation", () => {
   afterEach(() => {

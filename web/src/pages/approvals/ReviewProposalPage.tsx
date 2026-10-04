@@ -11,10 +11,11 @@ import {
 import { getBookingRequest } from "../../api/bookingRequests";
 import { ApiError } from "../../api/client";
 import { Screen } from "../../components/AppShell";
-import { Field, KeyValue, Tag, Tile } from "../../components/ui";
+import { Dialog, Field, KeyValue, Tag, Tile } from "../../components/ui";
 import { useAuthStore } from "../../store/authStore";
 import {
   formatDateTime,
+  formatItemName,
   formatMoney,
   formatQuantity,
   humanize,
@@ -36,6 +37,12 @@ const ACTION_LABEL: Record<ApprovalDecisionKind, string> = {
   Approved: "Approve booking",
   RevisionRequested: "Ask for a change",
   Rejected: "Reject",
+};
+
+const DECIDED_NOTICE: Record<ApprovalDecisionKind, string> = {
+  Approved: "Approved: the room is booked, the items are reserved and the student is emailed.",
+  RevisionRequested: "Sent back: the student is emailed your comment and can edit and resend.",
+  Rejected: "Rejected: the student is emailed your comment.",
 };
 
 /** A decision's failure as one line for the librarian: 409s by kind, 400s by field, else the message. */
@@ -66,6 +73,8 @@ export function ReviewProposalPage() {
   const [comments, setComments] = useState("");
   const [submitting, setSubmitting] = useState<ApprovalDecisionKind | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<ApprovalDecisionKind | null>(null);
 
   const proposal = useLoad(
     () => {
@@ -84,18 +93,28 @@ export function ReviewProposalPage() {
     "Failed to load the proposal.",
   );
 
-  async function decide(decision: ApprovalDecisionKind) {
-    if (!token) return;
-    const trimmed = comments.trim();
-    if (decision !== "Approved" && !trimmed) {
+  /** CW-13: Reject and Ask for a change wait for a confirm; Approve is one click with a summary after. */
+  function requestDecision(decision: ApprovalDecisionKind) {
+    if (decision !== "Approved" && !comments.trim()) {
       setFormError("Write a comment for the student before rejecting or asking for a change.");
       return;
     }
+    setFormError(null);
+    setNotice(null);
+    if (decision === "Approved") void decide(decision);
+    else setConfirming(decision);
+  }
+
+  async function decide(decision: ApprovalDecisionKind) {
+    if (!token) return;
+    const trimmed = comments.trim();
+    setConfirming(null);
     setSubmitting(decision);
     setFormError(null);
     try {
       await submitApprovalDecision(token, { quotationId: id, decision, comments: trimmed || null });
       setComments("");
+      setNotice(DECIDED_NOTICE[decision]);
       proposal.reload();
     } catch (reason) {
       setFormError(decisionError(reason));
@@ -117,6 +136,7 @@ export function ReviewProposalPage() {
       actions={item && <Tag tone={item.status === "Pending" ? "neutral" : statusTone(item.status)}>{humanize(item.status)}</Tag>}
     >
       {proposal.error && <p role="alert" className="form-error">{proposal.error}</p>}
+      {notice && <div className="notice-accent" role="status">{notice}</div>}
       {proposal.loading && !data && <div className="state-view">Loading…</div>}
 
       {data && item && (
@@ -175,7 +195,7 @@ export function ReviewProposalPage() {
                     {data.detail.lineItems.map((line) => (
                       <tr key={line.id}>
                         <td>{line.itemType}</td>
-                        <td>{line.itemName}</td>
+                        <td>{formatItemName(line.itemName)}</td>
                         <td>{formatQuantity(line.itemType, line.quantity)}</td>
                         <td>{formatMoney(line.unitPrice, item.currency)}</td>
                         <td style={{ textAlign: "right" }}>{formatMoney(line.lineTotal, item.currency)}</td>
@@ -238,7 +258,7 @@ export function ReviewProposalPage() {
                     className={decision === "Approved" ? "btn btn-primary btn-block" : "btn btn-secondary btn-block"}
                     style={{ padding: 12 }}
                     disabled={submitting !== null}
-                    onClick={() => decide(decision)}
+                    onClick={() => requestDecision(decision)}
                   >
                     {submitting === decision ? "Saving…" : ACTION_LABEL[decision]}
                   </button>
@@ -267,6 +287,29 @@ export function ReviewProposalPage() {
             )}
           </div>
         </div>
+      )}
+      {confirming && (
+        <Dialog
+          title={confirming === "Rejected" ? "Reject this request?" : "Ask the student for a change?"}
+          onClose={() => setConfirming(null)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setConfirming(null)}>
+                Go back
+              </button>
+              <button type="button" className="btn btn-primary" disabled={submitting !== null} onClick={() => decide(confirming)}>
+                {ACTION_LABEL[confirming]}
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            {confirming === "Rejected"
+              ? "The request closes and nothing is booked. The student is emailed this comment:"
+              : "The student is emailed this comment and can edit and resend the request:"}
+          </p>
+          <blockquote style={{ margin: 0 }}>{comments.trim()}</blockquote>
+        </Dialog>
       )}
     </Screen>
   );

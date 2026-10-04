@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import type { PagedResult, WorkflowStep } from "../../api/approvals";
 import type { TagTone } from "../../dev/fixtures";
+import { colomboDay, colomboTime } from "../../utils/colomboTime";
 
 /**
  * Shared helpers for the live S4 screens (W-03 … W-09 and the dashboard): money and date
@@ -14,8 +15,22 @@ export function formatMoney(amount: number, currency = "LKR"): string {
   return currency === "LKR" ? `Rs. ${value}` : `${currency} ${value}`;
 }
 
+/** "Mon 6 Oct, 14:05" in Colombo time (CW-11), whatever the browser's own zone. */
 export function formatDateTime(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString() : "—";
+  return value ? `${colomboDay(value)}, ${colomboTime(value)}` : "—";
+}
+
+const ISO_INSTANT = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))/g;
+
+/**
+ * CW-11: quotation room lines arrive as "Quiet Study 101 2026-10-13T10:00:00+05:30"; show
+ * "Quiet Study 101 · Mon 13 Oct, 10:00" instead. Names without a timestamp pass through.
+ */
+export function formatItemName(name: string): string {
+  return name.replace(ISO_INSTANT, (iso) => {
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? iso : `· ${formatDateTime(iso)}`;
+  }).replace(/\s+·/g, " ·");
 }
 
 /** The quantity column: a Room line counts hours, a Consumable line counts items. */
