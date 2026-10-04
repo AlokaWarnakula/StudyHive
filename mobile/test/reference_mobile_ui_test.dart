@@ -153,6 +153,14 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Done'), findsOneWidget);
   });
 
+  test('status tags show API enum names in words', () {
+    expect(ShTag.statusLabel('PendingApproval'), 'Pending approval');
+    expect(ShTag.statusLabel('RevisionRequested'), 'Revision requested');
+    expect(ShTag.statusLabel('NoShow'), 'No show');
+    expect(ShTag.statusLabel('Approved'), 'Approved');
+    expect(ShTag.statusLabel('Checked in'), 'Checked in');
+  });
+
   test('tags carry only the three reference tones', () {
     // The reference palette has no red/green/amber; status reads as
     // accent (affirmative), outline (in flight) or neutral (settled).
