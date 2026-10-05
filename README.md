@@ -63,7 +63,7 @@ The web dashboard refuses student accounts, and the app refuses staff accounts.
 
 ## Architecture
 
-![Architecture](docs/images/architecture.png)
+![Architecture](DOCS/images/architecture.png)
 
 - The **Flutter** and **React** clients talk **only** to the ASP.NET Core API (HTTPS + JWT).
 - The **API** is the only part that touches PostgreSQL, the agent service and Brevo.
@@ -75,7 +75,7 @@ The web dashboard refuses student accounts, and the app refuses staff accounts.
 The full cross-platform flow: it starts on the phone, the agents run, the request is approved on the
 web, and the result comes back to the phone.
 
-![Workflow sequence](docs/images/workflow-sequence.png)
+![Workflow sequence](DOCS/images/workflow-sequence.png)
 
 ## The agentic AI workflow
 
@@ -104,7 +104,7 @@ Design choices:
 
 Review page: validation checks, quotation and the approval buttons.
 
-![Review proposal](docs/images/review-proposal.png)
+![Review proposal](DOCS/images/review-proposal.png)
 
 ## Features
 
@@ -119,7 +119,7 @@ Review page: validation checks, quotation and the approval buttons.
 - Search, filters, sorting and paging on every list. Reports for bookings, room use and consumables
 - Append-only audit log of every staff action
 
-![Mobile flow](docs/images/mobile-flow.png)
+![Mobile flow](DOCS/images/mobile-flow.png)
 
 ## Tech stack
 
@@ -143,15 +143,14 @@ web/      React + Vite + TypeScript staff dashboard + Vitest tests
 mobile/   Flutter student app + flutter_test tests
 agent/    FastAPI + LangGraph agent service (internal only) + pytest tests
 infra/    seed SQL for production, load test script (infra/perf)
-docs/     README images
-DOCS/     original project plan and component guides
+DOCS/     project plan, component guides and README images
 UI/       supplied UI mockups (reference)
 ```
 
 Database schema reference: [`DATABASE.md`](DATABASE.md). Pre-deploy audit and fixes:
 [`AUDIT.md`](AUDIT.md).
 
-![ER diagram](docs/images/er-diagram.png)
+![ER diagram](DOCS/images/er-diagram.png)
 
 ## Run it locally
 
