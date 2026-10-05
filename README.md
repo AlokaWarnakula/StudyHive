@@ -15,7 +15,7 @@ SE3090 Software Engineering Frameworks, Assignment 1 (2026), group **SE3090_2026
 | API health | https://api-production-1198b.up.railway.app/health |
 | Swagger / OpenAPI | https://api-production-1198b.up.railway.app/swagger |
 | Android APK | [StudyHive-live-release.apk (Google Drive)](https://drive.google.com/file/d/1XEqgpQ4nFDujoIwarCMJ_q43P6u2GXLj/view?usp=sharing) |
-| Demo video | _link added after upload_ |
+| Demo video | https://www.youtube.com/watch?v=zOyWOcdWztY |
 | CI | [GitHub Actions](https://github.com/ItsAloka/StudyHive/actions) |
 
 ---
