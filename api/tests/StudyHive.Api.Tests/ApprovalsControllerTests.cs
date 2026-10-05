@@ -588,6 +588,33 @@ public class ApprovalsControllerTests(ApprovalsFixture fx) : IClassFixture<Appro
         var detail = await client.GetFromJsonAsync<ApprovalDetailShape>($"/api/approvals/{pending.QuotationId}", TestSupport.JsonOptions);
         detail!.Item.Status.Should().Be("Pending");
         detail.Item.BookingRequestId.Should().Be(pending.RequestId);
+
+        // The librarian can see whose booking this is (name, student number, email).
+        using (var scope = fx.Services.CreateScope())
+        {
+            var student = await fx.Db(scope).StudentProfiles.Include(p => p.User)
+                .SingleAsync(p => p.Id == fx.StudentProfileId);
+            detail.Item.StudentName.Should().Be(student.User.FullName);
+            detail.Item.StudentNumber.Should().Be(student.StudentNumber);
+            detail.Item.StudentEmail.Should().Be(student.User.Email);
+            var found = await client.GetFromJsonAsync<PagedResultShape<ApprovalQueueItemShape>>(
+                $"/api/approvals?pageSize=100&search={Uri.EscapeDataString(student.StudentNumber)}", TestSupport.JsonOptions);
+            found!.Items.Should().Contain(i => i.QuotationId == pending.QuotationId);
+
+            // The booking request itself carries the same identity, and the requests list can be
+            // searched by student number or name.
+            var request = await client.GetFromJsonAsync<BookingRequestResponseShape>(
+                $"/api/booking-requests/{pending.RequestId}", TestSupport.JsonOptions);
+            request!.StudentName.Should().Be(student.User.FullName);
+            request.StudentNumber.Should().Be(student.StudentNumber);
+            request.StudentEmail.Should().Be(student.User.Email);
+            var byNumber = await client.GetFromJsonAsync<PagedResultShape<BookingRequestResponseShape>>(
+                $"/api/booking-requests?pageSize=100&search={Uri.EscapeDataString(student.StudentNumber)}", TestSupport.JsonOptions);
+            byNumber!.Items.Should().Contain(r => r.Id == pending.RequestId && r.StudentName == student.User.FullName);
+            var byName = await client.GetFromJsonAsync<PagedResultShape<BookingRequestResponseShape>>(
+                $"/api/booking-requests?pageSize=100&search={Uri.EscapeDataString(student.User.FullName)}", TestSupport.JsonOptions);
+            byName!.Items.Should().Contain(r => r.Id == pending.RequestId);
+        }
         detail.LineItems.Should().ContainSingle(l => l.ItemType == "Room" && l.RoomId == roomId && l.RoomBookingId == null);
         detail.LineItems.Sum(l => l.LineTotal).Should().Be(detail.Item.TotalAmount);
 
@@ -751,6 +778,9 @@ internal sealed class ApprovalQueueItemShape
 {
     public Guid QuotationId { get; init; }
     public Guid BookingRequestId { get; init; }
+    public string StudentName { get; init; } = "";
+    public string StudentNumber { get; init; } = "";
+    public string StudentEmail { get; init; } = "";
     public decimal TotalAmount { get; init; }
     public string Status { get; init; } = "";
     public ApprovalDecisionShape? Decision { get; init; }

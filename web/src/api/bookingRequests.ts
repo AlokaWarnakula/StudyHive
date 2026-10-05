@@ -22,6 +22,10 @@ export interface BookingRequestItem {
 export interface BookingRequest {
   id: string;
   studentId: string;
+  /** Who made the request (staff lists and detail); null when the API did not load it. */
+  studentName?: string | null;
+  studentNumber?: string | null;
+  studentEmail?: string | null;
   objective: string;
   groupSize: number;
   preferredDateFrom: string;

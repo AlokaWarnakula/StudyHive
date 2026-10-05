@@ -80,6 +80,11 @@ public sealed class BookingRequestResponse
 {
     public required Guid Id { get; init; }
     public required Guid StudentId { get; init; }
+    /// <summary>Who made the request, so staff can see it on lists and the review page. Filled when
+    /// the query loaded the student and their user row; null otherwise (e.g. right after create).</summary>
+    public string? StudentName { get; init; }
+    public string? StudentNumber { get; init; }
+    public string? StudentEmail { get; init; }
     public required string Objective { get; init; }
     public required int GroupSize { get; init; }
     public required DateOnly PreferredDateFrom { get; init; }
@@ -115,6 +120,9 @@ public sealed class BookingRequestResponse
     {
         Id = request.Id,
         StudentId = request.StudentId,
+        StudentName = request.Student?.User?.FullName,
+        StudentNumber = request.Student?.StudentNumber,
+        StudentEmail = request.Student?.User?.Email,
         Objective = request.Objective,
         GroupSize = request.GroupSize,
         PreferredDateFrom = request.PreferredDateFrom,

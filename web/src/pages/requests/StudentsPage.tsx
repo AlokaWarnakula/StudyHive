@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Screen } from "../../components/AppShell";
 import { Field, KeyValue, Pagination, Placeholder, Tag, Toolbar } from "../../components/ui";
 import { Icon } from "../../components/Icon";
 import { ApiError } from "../../api/client";
 import {
+  getStudentProfile,
   listStudentProfiles,
   updateStudentProfile,
   type PagedResult,
@@ -33,6 +35,29 @@ export function StudentsPage() {
   const [selected, setSelected] = useState<StudentProfile | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // A student link on the requests / approvals pages opens /students?id=… with that panel open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedId = searchParams.get("id");
+  useEffect(() => {
+    if (!token || !linkedId) return;
+    let cancelled = false;
+    getStudentProfile(token, linkedId)
+      .then((profile) => {
+        if (!cancelled) setSelected(profile);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not open this student.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, linkedId]);
+
+  function closePanel() {
+    setSelected(null);
+    if (linkedId) setSearchParams({}, { replace: true });
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -174,7 +199,7 @@ export function StudentsPage() {
             isAdmin={isAdmin}
             saving={saving}
             message={saveMessage}
-            onClose={() => setSelected(null)}
+            onClose={closePanel}
             onSave={handleSave}
           />
         )}

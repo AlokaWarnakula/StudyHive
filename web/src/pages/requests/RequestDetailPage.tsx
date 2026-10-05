@@ -18,6 +18,7 @@ import { getConsumable } from "../../api/consumables";
 import { useAuthStore } from "../../store/authStore";
 import { statusLabel, statusTone } from "./status";
 import { colomboSlot, colomboStamp, colomboTime } from "../../utils/colomboTime";
+import { StudentLink } from "./StudentLink";
 import type { RoomBookingSummary } from "../../api/bookingRequests";
 
 const ACTIVE_WORKFLOW_STATUSES = new Set(["Started", "InProgress"]);
@@ -168,6 +169,11 @@ export function RequestDetailPage() {
       <div className="split">
         <div className="stack">
           <Tile label="Request">
+            <div className="fnote" style={{ marginBottom: 4 }}>
+              Requested by <StudentLink studentId={request.studentId} name={request.studentName} studentNumber={null} />
+              {request.studentNumber ? ` · ${request.studentNumber}` : ""}
+              {request.studentEmail ? ` · ${request.studentEmail}` : ""}
+            </div>
             <p style={{ margin: 0, fontSize: 15 }}>“{request.objective}”</p>
             <div className="k4">
               <div>

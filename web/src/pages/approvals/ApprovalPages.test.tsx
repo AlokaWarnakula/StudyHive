@@ -55,6 +55,9 @@ const pending: ApprovalQueueItem = {
   quotationId: "q-1",
   bookingRequestId: "r-1",
   studentId: "s-1",
+  studentName: "Kavya Fernando",
+  studentNumber: "IT24000002",
+  studentEmail: "kavya@studyhive.dev",
   objective: "Revise for the networks exam",
   groupSize: 4,
   version: 1,
@@ -138,6 +141,10 @@ describe("W-03 approval queue", () => {
 
     expect(await screen.findByText("Revise for the networks exam")).toBeInTheDocument();
     expect(listApprovals).toHaveBeenCalledWith("test-token", expect.objectContaining({ status: "Pending", sortBy: "createdAt", sortDir: "asc" }));
+    // The librarian sees whose booking it is, linked to that student's profile.
+    expect(screen.getByRole("columnheader", { name: "Student" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Kavya Fernando" })).toHaveAttribute("href", "/students?id=s-1");
+    expect(screen.getByText("IT24000002")).toBeInTheDocument();
     expect(screen.getAllByText("Rs. 120.00")).toHaveLength(2); // items and total
 
     fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "Rejected" } });
