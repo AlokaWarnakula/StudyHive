@@ -235,7 +235,9 @@ public sealed class ApprovalsController(
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term = $"%{query.Search.Trim()}%";
-            quotations = quotations.Where(q => EF.Functions.ILike(q.BookingRequest.Objective, term));
+            quotations = quotations.Where(q => EF.Functions.ILike(q.BookingRequest.Objective, term)
+                || EF.Functions.ILike(q.BookingRequest.Student.StudentNumber, term)
+                || EF.Functions.ILike(q.BookingRequest.Student.User.FullName, term));
         }
 
         // Pending first always; sortBy orders within each group.
@@ -405,6 +407,9 @@ public sealed class ApprovalsController(
             QuotationId = q.Id,
             BookingRequestId = q.BookingRequestId,
             StudentId = q.BookingRequest.StudentId,
+            StudentName = q.BookingRequest.Student.User.FullName,
+            StudentNumber = q.BookingRequest.Student.StudentNumber,
+            StudentEmail = q.BookingRequest.Student.User.Email,
             Objective = q.BookingRequest.Objective,
             GroupSize = q.BookingRequest.GroupSize,
             Version = q.Version,
@@ -492,6 +497,10 @@ public sealed class ApprovalQueueItemResponse
     public required Guid QuotationId { get; init; }
     public required Guid BookingRequestId { get; init; }
     public required Guid StudentId { get; init; }
+    /// <summary>Who asked, so the librarian knows whose booking they are deciding.</summary>
+    public required string StudentName { get; init; }
+    public required string StudentNumber { get; init; }
+    public required string StudentEmail { get; init; }
     public required string Objective { get; init; }
     public required int GroupSize { get; init; }
     public required int Version { get; init; }

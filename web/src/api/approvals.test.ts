@@ -52,7 +52,7 @@ describe("S4 approvals API client", () => {
 
     const detail: ApprovalDetail = {
       item: {
-        quotationId: "q1", bookingRequestId: "r1", studentId: "s1", objective: "Revise", groupSize: 4, version: 1,
+        quotationId: "q1", bookingRequestId: "r1", studentId: "s1", studentName: "Nimal Perera", studentNumber: "IT24000001", studentEmail: "nimal@studyhive.dev", objective: "Revise", groupSize: 4, version: 1,
         roomFee: 0, consumableCost: 120, totalAmount: 120, budgetSnapshot: 500, withinBudget: true, currency: "LKR",
         quotationStatus: "Proposed", createdAt: "2026-09-30T00:00:00Z", decision: null, status: "Pending",
       },

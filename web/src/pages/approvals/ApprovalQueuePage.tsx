@@ -4,6 +4,7 @@ import { listApprovals, type ApprovalQueueStatus } from "../../api/approvals";
 import { Screen } from "../../components/AppShell";
 import { Pagination, Select, Tag, Toolbar } from "../../components/ui";
 import { useAuthStore } from "../../store/authStore";
+import { StudentLink } from "../requests/StudentLink";
 import { formatDateTime, formatMoney, humanize, showingRange, statusTone, useLoad } from "./s4";
 
 const STATUS_OPTIONS = ["Pending", "Approved", "Rejected", "Revision requested", "All"] as const;
@@ -62,8 +63,8 @@ export function ApprovalQueuePage() {
           <input
             className="input"
             style={{ maxWidth: 280 }}
-            placeholder="Search the student's objective"
-            aria-label="Search the student's objective"
+            placeholder="Search objective, student name or number"
+            aria-label="Search objective, student name or number"
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
           />
@@ -90,6 +91,7 @@ export function ApprovalQueuePage() {
             <table className="table">
               <thead>
                 <tr>
+                  <th>Student</th>
                   <th>Objective</th>
                   <th>People</th>
                   <th>Room fee</th>
@@ -104,6 +106,9 @@ export function ApprovalQueuePage() {
               <tbody>
                 {result.items.map((row) => (
                   <tr key={row.quotationId}>
+                    <td>
+                      <StudentLink studentId={row.studentId} name={row.studentName} studentNumber={row.studentNumber} />
+                    </td>
                     <td>
                       <b>{row.objective}</b>
                       <div className="fnote">Version {row.version}</div>

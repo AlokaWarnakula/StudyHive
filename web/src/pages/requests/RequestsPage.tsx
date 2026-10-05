@@ -13,6 +13,7 @@ import {
 } from "../../api/bookingRequests";
 import { useAuthStore } from "../../store/authStore";
 import { statusLabel, statusTone } from "./status";
+import { StudentLink } from "./StudentLink";
 
 const STATUS_OPTIONS: BookingRequestStatus[] = [
   "Draft",
@@ -148,6 +149,7 @@ export function RequestsPage() {
               <thead>
                 <tr>
                   <th>Request</th>
+                  <th>Student</th>
                   <th>Purpose</th>
                   <th>Requested slot</th>
                   <th>People</th>
@@ -175,6 +177,9 @@ export function RequestsPage() {
                   <tr key={request.id} className="row-click" onClick={() => navigate(`/requests/${request.id}`)}>
                     <td>
                       <b>{request.id.slice(0, 8)}</b>
+                    </td>
+                    <td>
+                      <StudentLink studentId={request.studentId} name={request.studentName} studentNumber={request.studentNumber} />
                     </td>
                     <td>{request.objective}</td>
                     <td>

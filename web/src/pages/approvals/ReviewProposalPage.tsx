@@ -13,6 +13,7 @@ import { ApiError } from "../../api/client";
 import { Screen } from "../../components/AppShell";
 import { Dialog, Field, KeyValue, Tag, Tile } from "../../components/ui";
 import { useAuthStore } from "../../store/authStore";
+import { StudentLink } from "../requests/StudentLink";
 import {
   formatDateTime,
   formatItemName,
@@ -143,6 +144,10 @@ export function ReviewProposalPage() {
         <div className="split">
           <div className="stack">
             <Tile label="What the student asked for">
+              <div className="fnote" style={{ marginBottom: 4 }}>
+                Requested by <StudentLink studentId={item.studentId} name={item.studentName} studentNumber={null} />
+                {` · ${item.studentNumber} · ${item.studentEmail}`}
+              </div>
               <p style={{ margin: 0, fontSize: 15 }}>“{item.objective}”</p>
               <div className="k4" style={{ marginTop: 6 }}>
                 <div>

@@ -82,7 +82,9 @@ public sealed class BookingRequestsController(
     [ProducesResponseType(typeof(PagedResult<BookingRequestResponse>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] PageQuery query, [FromQuery] string? status, CancellationToken ct)
     {
-        IQueryable<BookingRequest> requests = db.BookingRequests.AsNoTracking().Include(r => r.Items);
+        IQueryable<BookingRequest> requests = db.BookingRequests.AsNoTracking()
+            .Include(r => r.Items)
+            .Include(r => r.Student).ThenInclude(s => s.User);
 
         // DOCS §11 API table scopes this list to "Student (own), Librarian" — StoreOfficer has no
         // business need to see other students' requests, so it is explicitly denied rather than
@@ -114,7 +116,11 @@ public sealed class BookingRequestsController(
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var search = $"%{query.Search.Trim()}%";
-            requests = requests.Where(r => EF.Functions.ILike(r.Objective, search));
+            // Staff look a request up by what it is for or by who asked (name, student number, email).
+            requests = requests.Where(r => EF.Functions.ILike(r.Objective, search)
+                || EF.Functions.ILike(r.Student.StudentNumber, search)
+                || EF.Functions.ILike(r.Student.User.FullName, search)
+                || EF.Functions.ILike(r.Student.User.Email, search));
         }
 
         var sortDescending = !string.Equals(query.SortDir, "asc", StringComparison.OrdinalIgnoreCase);
@@ -160,6 +166,7 @@ public sealed class BookingRequestsController(
     public async Task<IActionResult> GetById(Guid id, CancellationToken ct)
     {
         var bookingRequest = await db.BookingRequests.AsNoTracking().Include(r => r.Items)
+            .Include(r => r.Student).ThenInclude(s => s.User)
             .SingleOrDefaultAsync(r => r.Id == id, ct);
         if (bookingRequest is null) return NotFound();
 

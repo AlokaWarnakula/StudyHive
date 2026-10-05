@@ -1343,6 +1343,9 @@ internal sealed class BookingRequestResponseShape
 {
     public Guid Id { get; init; }
     public Guid StudentId { get; init; }
+    public string? StudentName { get; init; }
+    public string? StudentNumber { get; init; }
+    public string? StudentEmail { get; init; }
     public string Objective { get; init; } = "";
     public string Status { get; init; } = "";
     public decimal Budget { get; init; }

@@ -74,6 +74,10 @@ export interface ApprovalQueueItem {
   quotationId: string;
   bookingRequestId: string;
   studentId: string;
+  /** Who asked, so the librarian knows whose booking they are deciding. */
+  studentName: string;
+  studentNumber: string;
+  studentEmail: string;
   objective: string;
   groupSize: number;
   version: number;
